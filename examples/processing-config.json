@@ -1,0 +1,23 @@
+{
+  "audio_removal": true,
+  "face_blur": {
+    "enabled": true,
+    "method": "gaussian",
+    "intensity": 25
+  },
+  "frame_extraction": {
+    "method": "interval",
+    "value": 5,
+    "motion_threshold": 25
+  },
+  "object_detection": {
+    "model": "yolov8n",
+    "classes": ["person", "car", "truck"],
+    "confidence_threshold": 0.25
+  },
+  "geo_tagging": {
+    "mode": "manual",
+    "latitude": 20.2961,
+    "longitude": 85.8245
+  }
+}

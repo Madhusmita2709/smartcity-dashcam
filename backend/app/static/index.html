@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Video-to-Map Analytics</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Configurable Pipeline</p>
+          <h1>Video-to-Map Analytics</h1>
+          <p class="hero-copy">
+            Upload dashcam footage in batches, tune each processing stage, and inspect detections on a live map and heatmap.
+          </p>
+        </div>
+        <div class="hero-card">
+          <p>Per-video processing config is persisted as JSON and replayed by the pipeline.</p>
+          <pre id="configPreview"></pre>
+        </div>
+      </section>
+
+      <section class="grid">
+        <form id="uploadForm" class="panel form-panel">
+          <div class="panel-head">
+            <h2>Upload and Configure</h2>
+            <button type="submit">Upload Videos</button>
+          </div>
+
+          <label class="field">
+            <span>Video files</span>
+            <input id="videoFiles" name="files" type="file" accept="video/*" multiple required />
+          </label>
+
+          <section class="config-section">
+            <div class="section-head">
+              <h3>Audio</h3>
+            </div>
+            <label class="checkbox-row">
+              <input id="audioRemoval" type="checkbox" checked />
+              <span>Remove audio</span>
+            </label>
+          </section>
+
+          <section class="config-section">
+            <div class="section-head">
+              <h3>Face Blurring</h3>
+            </div>
+            <label class="checkbox-row">
+              <input id="faceBlurEnabled" type="checkbox" checked />
+              <span>Enable face blurring</span>
+            </label>
+            <label class="field">
+              <span>Method</span>
+              <select id="faceBlurMethod">
+                <option value="gaussian">Gaussian</option>
+                <option value="pixelate">Pixelate</option>
+                <option value="blackout">Blackout</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Intensity <strong id="faceBlurIntensityValue">25</strong></span>
+              <input id="faceBlurIntensity" type="range" min="1" max="100" value="25" />
+            </label>
+          </section>
+
+          <section class="config-section">
+            <div class="section-head">
+              <h3>Frame Extraction</h3>
+            </div>
+            <label class="field">
+              <span>Method</span>
+              <select id="frameMethod">
+                <option value="interval">Interval</option>
+                <option value="fps">FPS</option>
+                <option value="motion_based">Motion-based</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Value</span>
+              <input id="frameValue" type="number" min="0.1" step="0.1" value="5" />
+            </label>
+            <label class="field">
+              <span>Motion threshold</span>
+              <input id="motionThreshold" type="number" min="0" step="1" value="25" />
+            </label>
+          </section>
+
+          <section class="config-section">
+            <div class="section-head">
+              <h3>Object Detection</h3>
+            </div>
+            <label class="field">
+              <span>YOLO model</span>
+              <input id="detectionModel" type="text" value="yolov8n" />
+            </label>
+            <label class="field">
+              <span>Confidence threshold</span>
+              <input id="confidenceThreshold" type="number" min="0" max="1" step="0.05" value="0.25" />
+            </label>
+            <fieldset class="checkbox-grid" id="classOptions">
+              <legend>Classes</legend>
+              <label><input type="checkbox" value="person" checked /> person</label>
+              <label><input type="checkbox" value="car" checked /> car</label>
+              <label><input type="checkbox" value="bike" checked /> bike</label>
+              <label><input type="checkbox" value="truck" /> truck</label>
+              <label><input type="checkbox" value="bus" /> bus</label>
+              <label><input type="checkbox" value="animal" /> animal</label>
+            </fieldset>
+            <div class="inline-row">
+              <input id="customClass" type="text" placeholder="Add custom class" />
+              <button type="button" id="addClassButton" class="secondary">Add</button>
+            </div>
+            <div id="customClassList" class="chip-row"></div>
+          </section>
+
+          <section class="config-section">
+            <div class="section-head">
+              <h3>Geo-tagging</h3>
+            </div>
+            <div class="radio-group">
+              <label><input type="radio" name="geoMode" value="metadata" checked /> Use metadata</label>
+              <label><input type="radio" name="geoMode" value="manual" /> Manual input</label>
+            </div>
+            <div id="manualGeoFields" class="two-column hidden">
+              <label class="field">
+                <span>Latitude</span>
+                <input id="latitude" type="number" step="0.000001" value="20.2961" />
+              </label>
+              <label class="field">
+                <span>Longitude</span>
+                <input id="longitude" type="number" step="0.000001" value="85.8245" />
+              </label>
+            </div>
+          </section>
+
+          <div class="form-footer">
+            <p id="uploadStatus">Select one or more videos to begin.</p>
+          </div>
+        </form>
+
+        <section class="panel results-panel">
+          <div class="panel-head">
+            <h2>Processing Jobs</h2>
+            <button id="refreshHeatmap" class="secondary" type="button">Refresh Heatmap</button>
+          </div>
+          <div id="jobList" class="job-list"></div>
+        </section>
+      </section>
+
+      <section class="visualization-grid">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Map Visualization</h2>
+          </div>
+          <div id="map"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head filter-head">
+            <h2>Heatmap Filters</h2>
+            <div class="filter-row">
+              <select id="heatmapObjectFilter">
+                <option value="">All objects</option>
+                <option value="person">person</option>
+                <option value="car">car</option>
+                <option value="bike">bike</option>
+                <option value="truck">truck</option>
+                <option value="bus">bus</option>
+                <option value="animal">animal</option>
+              </select>
+              <input id="heatmapStart" type="number" min="0" step="1" value="0" placeholder="Start seconds" />
+              <input id="heatmapEnd" type="number" min="0" step="1" value="3600" placeholder="End seconds" />
+            </div>
+          </div>
+          <div id="heatmapSummary" class="summary"></div>
+          <div id="detectionList" class="detection-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
