@@ -37,6 +37,7 @@ const elements = {
   heatmapStart: document.getElementById("heatmapStart"),
   heatmapEnd: document.getElementById("heatmapEnd"),
   violationList: document.getElementById("violationList"),
+  checkViolationsBtn: document.getElementById("checkViolationsBtn"),
 };
 
 function getGeoMode() {
@@ -161,15 +162,28 @@ async function loadResults(videoId) {
   renderDetections();
 }
 
-async function loadViolations(videoId) {
-  const response = await fetch(`/violations/${videoId}`);
+async function loadViolations() {
+  // get most recently processed video
+  const lastJob = state.jobs[state.jobs.length - 1];
+  if (!lastJob) {
+    elements.violationList.innerHTML = "<p class='summary'>No video processed yet.</p>";
+    return;
+  }
+
+  const tripleRidingChecked = document.getElementById("vTripleRiding").checked;
+  if (!tripleRidingChecked) {
+    elements.violationList.innerHTML = "<p class='summary'>Select at least one violation type.</p>";
+    return;
+  }
+
+  const response = await fetch(`/violations/${lastJob.video_id}`);
   if (!response.ok) return;
   const payload = await response.json();
-  // merge into state — avoid duplicates
-  state.violations = [
-    ...state.violations.filter((v) => v.video_id !== videoId),
-    ...payload.violations.map((v) => ({ ...v, video_id: videoId })),
-  ];
+
+  state.violations = payload.violations.map((v) => ({
+    ...v,
+    video_id: lastJob.video_id
+  }));
   renderViolations();
 }
 
@@ -366,3 +380,4 @@ toggleManualGeoFields();
 renderViolations();
 initMap();
 refreshHeatmap();
+elements.checkViolationsBtn.addEventListener("click", loadViolations);

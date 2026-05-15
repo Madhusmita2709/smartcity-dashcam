@@ -143,15 +143,26 @@
         </form>
 
         <section class="panel results-panel">
-          <div class="panel-head">
-            <h2>Processing Jobs</h2>
-            <button id="refreshHeatmap" class="secondary" type="button">Refresh Heatmap</button>
-          </div>
-          <div id="jobList" class="job-list"></div>
-        </section>
-        <section class="panel results-panel">
   <div class="panel-head">
     <h2>Violations Checklist</h2>
+  </div>
+  <div class="config-section">
+    <div class="section-head">
+      <h3>Select Violation Types</h3>
+    </div>
+    <fieldset class="checkbox-grid">
+      <label><input type="checkbox" value="triple_riding" id="vTripleRiding" /> Triple Riding</label>
+      <label><input type="checkbox" disabled /> No Helmet <span class="summary">(coming soon)</span></label>
+      <label><input type="checkbox" disabled /> Red Light Jumping <span class="summary">(coming soon)</span></label>
+      <label><input type="checkbox" disabled /> No Seatbelt <span class="summary">(coming soon)</span></label>
+      <label><input type="checkbox" disabled /> Wrong Side Driving <span class="summary">(coming soon)</span></label>
+      <label><input type="checkbox" disabled /> Using Mobile While Driving <span class="summary">(coming soon)</span></label>
+      <label><input type="checkbox" disabled /> No Number Plate <span class="summary">(coming soon)</span></label>
+      <label><input type="checkbox" disabled /> Overspeeding <span class="summary">(coming soon)</span></label>
+      <label><input type="checkbox" disabled /> Lane Changing <span class="summary">(coming soon)</span></label>
+      <label><input type="checkbox" disabled /> Parking Violation <span class="summary">(coming soon)</span></label>
+    </fieldset>
+    <button type="button" id="checkViolationsBtn">Check Violations</button>
   </div>
   <div id="violationList" class="job-list"></div>
 </section>
