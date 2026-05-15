@@ -145,12 +145,15 @@ def get_results(video_id: int, db: Session = Depends(get_db)):
             FrameImageResponse(
                 id=item.id,
                 frame_index=item.frame_index,
-                timestamp_seconds=item.timestamp_seconds,
-                bucket_name=item.bucket_name,
-                object_key=item.object_key,
-                object_url=item.object_url,
-                content_type=item.content_type,
-                size_bytes=item.size_bytes,
+                #timestamp_seconds=item.timestamp_seconds,
+                #bucket_name=item.bucket_name,
+                #object_key=item.object_key,
+                #object_url=item.object_url,
+                #content_type=item.content_type,
+                #size_bytes=item.size_bytes,
+                frame_number=item.frame_number,
+                image_path=item.image_path,
+                video_id=item.video_id,
             )
             for item in frame_images
         ],

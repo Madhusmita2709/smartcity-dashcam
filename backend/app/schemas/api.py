@@ -38,13 +38,10 @@ class DetectionResponse(BaseModel):
 
 class FrameImageResponse(BaseModel):
     id: int
-    frame_index: int
-    timestamp_seconds: float
-    bucket_name: str
-    object_key: str
-    object_url: str
-    content_type: str | None
-    size_bytes: int | None
+    frame_index: int | None
+    frame_number: int | None
+    image_path: str | None
+    video_id: int
 
 
 class ResultsResponse(BaseModel):

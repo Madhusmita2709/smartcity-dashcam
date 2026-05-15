@@ -68,13 +68,9 @@ class VideoProcessingPipeline:
                     FrameImage(
                         video_id=video.id,
                         frame_index=frame["frame_index"],
-                        timestamp_seconds=frame["timestamp_seconds"],
-                        bucket_name=stored_frame.bucket_name,
-                        object_key=stored_frame.object_key,
-                        object_url=stored_frame.object_url,
-                        content_type=stored_frame.content_type,
-                        size_bytes=stored_frame.size_bytes,
-                    )
+                        frame_number=frame["frame_index"],
+                        image_path=stored_frame.object_url,
+                    )   
                 )
             if frame_records:
                 db.add_all(frame_records)
@@ -110,7 +106,7 @@ class VideoProcessingPipeline:
                         longitude=longitude,
                         source_mode=config.geo_tagging.mode if location else None,
                         location=self._build_location_value(db, latitude, longitude),
-                        tags=[item["object_class"]],
+                        #tags=[item["object_class"]],
                     )
                 )
 
