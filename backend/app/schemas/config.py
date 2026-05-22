@@ -14,6 +14,10 @@ class FaceBlurConfig(BaseModel):
     method: FaceBlurMethod = "gaussian"
     intensity: int = Field(default=25, ge=1, le=100)
 
+class NumberPlateBlurConfig(BaseModel):
+    enabled: bool = False
+    method: FaceBlurMethod = "gaussian"
+    intensity: int = Field(default=25, ge=1, le=100)
 
 class FrameExtractionConfig(BaseModel):
     method: FrameExtractionMethod = "interval"
@@ -55,16 +59,16 @@ class GeoTaggingConfig(BaseModel):
             raise ValueError("Manual geo-tagging requires latitude and longitude.")
         return value
     
-    # class ViolationDetectionConfig(BaseModel):
-    #     enabled:bool = False
-    #     list_violations: List[str] = Field(default_factory=lambda:["triple_riding"])
+class ViolationDetectionConfig(BaseModel):
+    taskkillenabled:bool = False
+    list_violations: list[str] = Field(default_factory=lambda:["triple_riding"])
 
 
 class ProcessingConfig(BaseModel):
     audio_removal: bool = True
     face_blur: FaceBlurConfig = Field(default_factory=FaceBlurConfig)
+    number_plate_blur: NumberPlateBlurConfig = Field(default_factory=NumberPlateBlurConfig)
     frame_extraction: FrameExtractionConfig = Field(default_factory=FrameExtractionConfig)
     object_detection: ObjectDetectionConfig = Field(default_factory=ObjectDetectionConfig)
     geo_tagging: GeoTaggingConfig = Field(default_factory=GeoTaggingConfig)
-
-    # violation_detection: ViolationDetectionConfig = Field(default_factory=ViolationDetectionConfig)
+    violation_detection: ViolationDetectionConfig = Field(default_factory=ViolationDetectionConfig)

@@ -9,6 +9,8 @@ from backend.app.models.video import Detection, FrameImage, ProcessingRun, Video
 from backend.app.schemas.config import ProcessingConfig
 from backend.app.services.processors.audio import AudioRemovalProcessor
 from backend.app.services.processors.face_blur import FaceBlurProcessor
+#from backend.app.services.processors.face_blur import FaceBlurProcessor
+from backend.app.services.processors.triple_riding import TripleRidingDetector
 from backend.app.services.processors.frame_extractor import FrameExtractionProcessor
 from backend.app.services.processors.geotagger import GeoTaggingProcessor
 from backend.app.services.processors.object_detector import ObjectDetectionProcessor
@@ -25,11 +27,13 @@ class VideoProcessingPipeline:
     def __init__(self) -> None:
         self.audio = AudioRemovalProcessor()
         self.face_blur = FaceBlurProcessor()
+        self.triple_riding = TripleRidingDetector()
         self.frame_extractor = FrameExtractionProcessor()
         self.object_detector = ObjectDetectionProcessor()
         self.geotagger = GeoTaggingProcessor()
 
     def run(self, db: Session, video: Video, config: ProcessingConfig) -> dict:
+        print(f"[Pipeline] face_blur.enabled={config.face_blur.enabled}, method={config.face_blur.method}, intensity={config.face_blur.intensity}")
         work_dir = ensure_video_dir(video.id)
         run = ProcessingRun(video_id=video.id, status="running", stage_logs={})
         db.add(run)
@@ -48,6 +52,13 @@ class VideoProcessingPipeline:
             else:
                 stage_logs["audio_removal"] = {"status": "skipped", "reason": "disabled"}
 
+            current_video, stage_logs["triple_riding"] = self.triple_riding.run(current_video, work_dir / "triple_riding")
+            video.processed_video_path = str(current_video)
+
+            frames, stage_logs["frame_extraction"] = self.frame_extractor.run(
+                current_video, config.frame_extraction, work_dir / "frames"
+            )
+
             if config.face_blur.enabled:
                 current_video, stage_logs["face_blur"] = self.face_blur.run(
                     current_video, config.face_blur, work_dir / "face_blur"
@@ -57,9 +68,12 @@ class VideoProcessingPipeline:
                 stage_logs["face_blur"] = {"status": "skipped", "reason": "disabled"}
                 video.processed_video_path = str(current_video)
 
-            frames, stage_logs["frame_extraction"] = self.frame_extractor.run(
-                current_video, config.frame_extraction, work_dir / "frames"
-            )
+            #current_video, stage_logs["triple_riding"] = self.triple_riding.run(current_video, work_dir / "triple_riding")
+            #video.processed_video_path = str(current_video)
+
+            #frames, stage_logs["frame_extraction"] = self.frame_extractor.run(
+                #current_video, config.frame_extraction, work_dir / "frames"
+            #)
             db.query(FrameImage).filter(FrameImage.video_id == video.id).delete()
             frame_records = []
             for frame in frames:
