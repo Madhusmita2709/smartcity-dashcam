@@ -17,7 +17,6 @@ except ImportError:  # pragma: no cover - dependency presence is validated at ru
 
 settings = get_settings()
 
-
 @dataclass
 class StoredObject:
     bucket_name: str

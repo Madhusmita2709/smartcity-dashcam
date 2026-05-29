@@ -1,7 +1,12 @@
 from ultralytics import YOLO
 import cv2
 from pathlib import Path
-import easyocr
+
+from backend.app.services.storage import upload_file
+from backend.app.core.config import get_settings
+from backend.app.services.processors.plate_reader import PlateReader
+
+settings = get_settings()
 
 
 class TripleRidingDetector:
@@ -9,66 +14,84 @@ class TripleRidingDetector:
     def __init__(self):
 
         self.model = YOLO(
-            "backend/app/services/processors/yolov8n.pt"
+            "backend/app/services/models/triple_riding.pt"
         )
 
-        self.PERSON_CLASS = 0
-        self.MOTORCYCLE_CLASS = 3
-        self.reader = easyocr.Reader(['en'])
+        self.PERSON_CLASS = 1
+        self.MOTORCYCLE_CLASS = 0
 
-    def extract_number_plate(self, frame, moto_box):
+        self.plate_reader = PlateReader()
 
-        x1, y1, x2, y2 = map(int, moto_box)
+        # cooldown
+        self.violation_cooldown = {}
 
-        # Better number plate region
+        # stable memory
+        self.last_valid_plate = {}
 
-        plate_region = frame[
-                max(0, int(y2 - 60)):min(frame.shape[0], int(y2 + 40)),
-            max(0, x1):min(frame.shape[1], x2)
-            ]
-        if plate_region.size == 0:
-            return None
+    def generate_track_key(
+        self,
+        mx1,
+        my1,
+        mx2,
+        my2
+    ):
 
-        gray = cv2.cvtColor(
-        plate_region,
-        cv2.COLOR_BGR2GRAY
+        # BIGGER GRID
+        center_x = (mx1 + mx2) // 2
+        center_y = (my1 + my2) // 2
+
+        return (
+            center_x // 120,
+            center_y // 120
         )
 
-        gray = cv2.bilateralFilter(
-        gray,
-        11,
-        17,
-        17
-        )
-
-        results = self.reader.readtext(gray)
-
-        for result in results:
-
-            text = result[1]
-
-            # Remove spaces
-            text = text.replace(" ", "")
-
-            # Basic filtering
-            if len(text) >= 6:
-                return text
-
-        return None
-
-    def run(self, input_path, output_dir):
+    def run(
+        self,
+        input_path,
+        output_dir,
+        video_id
+    ):
 
         output_dir = Path(output_dir)
 
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
-        output_video = output_dir / "triple_riding_output.mp4"
+        output_video = (
+            output_dir /
+            "triple_riding_output.mp4"
+        )
 
-        cap = cv2.VideoCapture(str(input_path))
+        violation_dir = (
+            output_dir /
+            "violations"
+        )
 
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
+        violation_dir.mkdir(
+            exist_ok=True
+        )
+
+        cap = cv2.VideoCapture(
+            str(input_path)
+        )
+
+        width = int(
+            cap.get(
+                cv2.CAP_PROP_FRAME_WIDTH
+            )
+        )
+
+        height = int(
+            cap.get(
+                cv2.CAP_PROP_FRAME_HEIGHT
+            )
+        )
+
+        fps = cap.get(
+            cv2.CAP_PROP_FPS
+        )
 
         out = cv2.VideoWriter(
             str(output_video),
@@ -77,7 +100,9 @@ class TripleRidingDetector:
             (width, height)
         )
 
-        while True:
+        violation_records = []
+
+        while cap.isOpened():
 
             ret, frame = cap.read()
 
@@ -96,25 +121,29 @@ class TripleRidingDetector:
 
                 for box in r.boxes:
 
-                    cls = int(box.cls[0])
+                    cls = int(
+                        box.cls[0]
+                    )
 
                     x1, y1, x2, y2 = map(
                         int,
-                        box.xyxy[0]   
+                        box.xyxy[0]
                     )
 
-                    confidence = float(box.conf[0])
+                    conf = float(
+                        box.conf[0]
+                    )
 
                     if cls == self.PERSON_CLASS:
 
                         persons.append(
-                            [x1, y1, x2, y2,confidence]
+                            [x1, y1, x2, y2, conf]
                         )
 
                     elif cls == self.MOTORCYCLE_CLASS:
 
                         motorcycles.append(
-                            [x1, y1, x2, y2,confidence]
+                            [x1, y1, x2, y2, conf]
                         )
 
             for moto in motorcycles:
@@ -122,14 +151,16 @@ class TripleRidingDetector:
                 mx1, my1, mx2, my2, moto_conf = moto
 
                 rider_count = 0
-                
-                confidence_scores = []
+                conf_scores = []
 
                 for person in persons:
 
                     px1, py1, px2, py2, person_conf = person
 
-                    foot_x = (px1 + px2) // 2
+                    foot_x = (
+                        px1 + px2
+                    ) // 2
+
                     foot_y = py2
 
                     if (
@@ -139,56 +170,213 @@ class TripleRidingDetector:
                     ):
 
                         rider_count += 1
-                        confidence_scores.append(person_conf)
 
-                color = (0, 255, 0)
-
-                label = f"Riders: {rider_count}"
+                        conf_scores.append(
+                            person_conf
+                        )
 
                 if rider_count >= 3:
 
-                    color = (0, 0, 255)
-
                     avg_conf = (
-                        sum(confidence_scores) / len(confidence_scores)
-                        if confidence_scores else 0
+                        sum(conf_scores)
+                        / len(conf_scores)
+                        if conf_scores else 0
                     )
 
-                    final_conf = (avg_conf + moto_conf) / 2
+                    final_conf = (
+                        avg_conf + moto_conf
+                    ) / 2
 
-                    label = f"TRIPLE RIDING {final_conf:.2f}"
+                    timestamp = (
+                        cap.get(
+                            cv2.CAP_PROP_POS_MSEC
+                        ) / 1000
+                    )
 
-                    plate_number = self.extract_number_plate(frame, [mx1, my1, mx2, my2])
+                    # STABLE TRACK KEY
+                    track_key = (
+                        self.generate_track_key(
+                            mx1,
+                            my1,
+                            mx2,
+                            my2
+                        )
+                    )
 
-                    if plate_number:
-                        print(f"TRIPLE RIDING DETECTED -> Plate Number: {plate_number}")
-                    else:
-                        print("TRIPLE RIDING DETECTED -> Plate Number Not Found")
+                    # INIT MEMORY
+                    if (
+                        track_key
+                        not in
+                        self.last_valid_plate
+                    ):
 
-                cv2.rectangle(
-                    frame,
-                    (mx1, my1),
-                    (mx2, my2),
-                    color,
-                    3
-                )
+                        self.last_valid_plate[
+                            track_key
+                        ] = "UNKNOWN"
 
-                cv2.putText(
-                    frame,
-                    label,
-                    (mx1, my1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    color,
-                    2
-                )
+                    plate_number = (
+                        self.last_valid_plate[
+                            track_key
+                        ]
+                    )
+
+                    # OCR
+                    plate_results = (
+                        self.plate_reader.read_plate(
+                            frame,
+                            track_key
+                        )
+                    )
+
+                    if plate_results:
+
+                        detected_plate = (
+                            plate_results[0]
+                            .get(
+                                "plate",
+                                "UNKNOWN"
+                            )
+                        )
+
+                        # SAVE ONLY VALID
+                        if (
+                            detected_plate != "UNKNOWN"
+                            and
+                            len(detected_plate) >= 6
+                        ):
+
+                            self.last_valid_plate[
+                                track_key
+                            ] = detected_plate
+
+                            plate_number = (
+                                detected_plate
+                            )
+
+                        else:
+
+                            # REUSE OLD PLATE
+                            plate_number = (
+                                self.last_valid_plate[
+                                    track_key
+                                ]
+                            )
+
+                    print(
+                        f"[PLATE] "
+                        f"{track_key} -> "
+                        f"{plate_number}",
+                        flush=True
+                    )
+
+                    # STILL UNKNOWN?
+                    if (
+                        plate_number == "UNKNOWN"
+                    ):
+                        continue
+
+                    last_saved = (
+                        self.violation_cooldown.get(
+                            track_key,
+                            -999
+                        )
+                    )
+
+                    if (
+                        timestamp -
+                        last_saved
+                    ) >= 2:
+
+                        image_name = (
+                            f"{video_id}_"
+                            f"{int(timestamp)}s_"
+                            f"{plate_number}.jpg"
+                        )
+
+                        temp_path = (
+                            violation_dir /
+                            image_name
+                        )
+
+                        cv2.imwrite(
+                            str(temp_path),
+                            frame
+                        )
+
+                        object_key = (
+                            f"videos/"
+                            f"{video_id}/"
+                            f"violations/"
+                            f"{image_name}"
+                        )
+
+                        uploaded = upload_file(
+                            settings.minio_images_bucket,
+                            object_key,
+                            temp_path,
+                            "image/jpeg"
+                        )
+
+                        violation_records.append(
+                            {
+                                "timestamp_seconds":
+                                timestamp,
+
+                                "plate_number":
+                                plate_number,
+
+                                "violation_type":
+                                "triple_riding",
+
+                                "confidence":
+                                final_conf,
+
+                                "image_url":
+                                uploaded.object_url
+                            }
+                        )
+
+                        self.violation_cooldown[
+                            track_key
+                        ] = timestamp
+
+                        temp_path.unlink(
+                            missing_ok=True
+                        )
+
+                        print(
+                            f"TRIPLE RIDING | "
+                            f"Plate: {plate_number} | "
+                            f"Time: {timestamp:.2f}s",
+                            flush=True
+                        )
+
+                    cv2.rectangle(
+                        frame,
+                        (mx1, my1),
+                        (mx2, my2),
+                        (0, 0, 255),
+                        3
+                    )
+
+                    cv2.putText(
+                        frame,
+                        f"TRIPLE {final_conf:.2f}",
+                        (mx1, my1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.8,
+                        (0, 0, 255),
+                        2
+                    )
 
             out.write(frame)
 
         cap.release()
         out.release()
 
+        cv2.destroyAllWindows()
+
         return output_video, {
             "status": "completed",
-            "message": "Triple riding detection completed"
+            "violations": violation_records
         }
