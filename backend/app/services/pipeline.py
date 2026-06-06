@@ -1,4 +1,5 @@
 from datetime import datetime
+from logging import config
 from pathlib import Path
 
 #from cv2 import config
@@ -19,9 +20,11 @@ from backend.app.schemas.config import ProcessingConfig
 from backend.app.services.processors.audio import AudioRemovalProcessor
 from backend.app.services.processors.face_blur import FaceBlurProcessor
 from backend.app.services.processors.triple_riding import TripleRidingDetector
+from backend.app.services.processors.wrong_way import WrongWayDetector
 from backend.app.services.processors.frame_extractor import FrameExtractionProcessor
 from backend.app.services.processors.geotagger import GeoTaggingProcessor
 from backend.app.services.processors.object_detector import ObjectDetectionProcessor
+
 
 from backend.app.services.storage import (
     download_file,
@@ -39,6 +42,7 @@ class VideoProcessingPipeline:
         self.audio = AudioRemovalProcessor()
         self.face_blur = FaceBlurProcessor()
         self.triple_riding = TripleRidingDetector()
+        self.wrong_way = WrongWayDetector()
         self.frame_extractor = FrameExtractionProcessor()
         self.object_detector = ObjectDetectionProcessor()
         self.geotagger = GeoTaggingProcessor()
@@ -108,7 +112,17 @@ class VideoProcessingPipeline:
 
             else:
                 stage_logs["triple_riding"] = {"status": "skipped"}
+            
+            # WRONG WAY
+            if (config.violation_detection.taskkillenabled and "wrong_way" in config.violation_detection.list_violations):
 
+                current_video, stage_logs["wrong_way"] = (
+                self.wrong_way.run(current_video,work_dir / "wrong_way",video.id))
+
+            else:
+
+                stage_logs["wrong_way"] = {"status": "skipped"}
+            
             # FRAME EXTRACTION
             frames, stage_logs["frame_extraction"] = (
                 self.frame_extractor.run(

@@ -52,6 +52,15 @@ function getSelectedClasses() {
 
 function buildConfig() {
   const mode = getGeoMode();
+  const violations = [];
+  if (document.getElementById("vTripleRiding").checked) {
+    violations.push("triple_riding");
+  }
+
+  if (document.getElementById("vWrongWay").checked) {
+    violations.push("wrong_way");
+  }
+
   return {
     audio_removal: elements.audioRemoval.checked,
     face_blur: {
@@ -75,14 +84,9 @@ function buildConfig() {
       longitude: mode === "manual" ? Number(elements.longitude.value) : null,
     },
     violation_detection: {
-      taskkillenabled:
-        document.getElementById("vTripleRiding").checked,
-
-  list_violations:
-      document.getElementById("vTripleRiding").checked
-      ? ["triple_riding"]
-      : []
-},
+      taskkillenabled: violations.length > 0,
+      list_violations: violations
+    }
   };
 }
 
@@ -152,6 +156,9 @@ async function processVideo(videoId) {
 
 if (document.getElementById("vTripleRiding").checked) {
   selectedViolations.push("triple_riding");
+}
+if (document.getElementById("vWrongWay").checked) {
+  selectedViolations.push("wrong_way");
 }
 
 const response = await fetch(`/process/${videoId}`, {
@@ -389,6 +396,12 @@ elements.refreshHeatmap.addEventListener("click", refreshHeatmap);
 elements.heatmapObjectFilter.addEventListener("change", refreshHeatmap);
 elements.heatmapStart.addEventListener("input", refreshHeatmap);
 elements.heatmapEnd.addEventListener("input", refreshHeatmap);
+
+document.getElementById("vTripleRiding")
+  .addEventListener("change", renderConfigPreview);
+
+document.getElementById("vWrongWay")
+  .addEventListener("change", renderConfigPreview);
 
 renderConfigPreview();
 renderJobs();
