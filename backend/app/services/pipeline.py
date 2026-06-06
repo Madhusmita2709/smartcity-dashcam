@@ -1,9 +1,11 @@
 from datetime import datetime
 from pathlib import Path
 
+#from cv2 import config
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy.orm import Session
+from streamlit import video
 
 from backend.app.models.video import (
     Detection,
@@ -98,17 +100,14 @@ class VideoProcessingPipeline:
                     "status": "skipped",
                     "reason": "disabled"
                 }
-
+            print(config.violation_detection)
             # TRIPLE RIDING
-            current_video, stage_logs["triple_riding"] = (
-                self.triple_riding.run(
-                    current_video,
-                    work_dir / "triple_riding",
-                    video.id
-                )
-            )
+            if (config.violation_detection.taskkillenabled and"triple_riding" in config.violation_detection.list_violations):
+                current_video, stage_logs["triple_riding"] = (self.triple_riding.run(current_video,work_dir / "triple_riding",video.id))
+                video.processed_video_path = str(current_video)
 
-            video.processed_video_path = str(current_video)
+            else:
+                stage_logs["triple_riding"] = {"status": "skipped"}
 
             # FRAME EXTRACTION
             frames, stage_logs["frame_extraction"] = (

@@ -74,6 +74,15 @@ function buildConfig() {
       latitude: mode === "manual" ? Number(elements.latitude.value) : null,
       longitude: mode === "manual" ? Number(elements.longitude.value) : null,
     },
+    violation_detection: {
+      taskkillenabled:
+        document.getElementById("vTripleRiding").checked,
+
+  list_violations:
+      document.getElementById("vTripleRiding").checked
+      ? ["triple_riding"]
+      : []
+},
   };
 }
 
@@ -139,7 +148,15 @@ async function uploadVideos(event) {
 async function processVideo(videoId) {
   updateJob(videoId, { processing: true });
   renderJobs();
-  const response = await fetch(`/process/${videoId}`, { method: "POST" });
+  const selectedViolations = [];
+
+if (document.getElementById("vTripleRiding").checked) {
+  selectedViolations.push("triple_riding");
+}
+
+const response = await fetch(`/process/${videoId}`, {
+  method: "POST",headers: {"Content-Type": "application/json"},body: JSON.stringify({violations: selectedViolations})
+});
   const payload = await response.json();
   updateJob(videoId, {
     processing: false,
