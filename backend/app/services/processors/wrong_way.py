@@ -52,6 +52,8 @@ class WrongWayDetector:
         flow_dx = []
         flow_dy = []
         saved_violations = set()
+        track_history = {}
+        
     
         while cap.isOpened():
             ret, frame = cap.read()
@@ -68,6 +70,10 @@ class WrongWayDetector:
                     track_id = int(box.id[0])
                     cls = int(box.cls[0])
                     class_name = self.model.names[cls]
+                    print(
+                        f"[TRACK_ID] {track_id} {class_name}",
+                        flush=True
+                    )
                     
                     # Only vehicles
                     if class_name not in ["car","motorcycle","bus","truck"]:
@@ -75,6 +81,68 @@ class WrongWayDetector:
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     center_x = (x1 + x2) // 2
                     center_y = (y1 + y2) // 2
+                    if track_id not in track_history:
+                        track_history[track_id] = []
+
+                    track_history[track_id].append((center_x, center_y))
+
+                    if len(track_history[track_id]) > 30:
+                        track_history[track_id].pop(0)
+                    history = track_history[track_id]
+
+                    print(
+                        f"[ANGLE START] "
+                        f"ID={track_id} "
+                        f"HISTORY={len(history)}",
+                        flush=True
+                    )
+
+                    if len(history) >= 5:
+
+                        start_x, start_y = history[0]
+                        end_x, end_y = history[-1]
+
+                        traj_dx = end_x - start_x
+                        traj_dy = end_y - start_y
+
+                        vehicle_angle = np.degrees(np.arctan2(traj_dy, traj_dx))
+
+                        if len(flow_dx) < 5:
+                            continue
+                        flow_angle = np.degrees(np.arctan2(avg_dy, avg_dx))
+
+                        angle_diff = abs(vehicle_angle - flow_angle)
+
+                        if angle_diff > 180:
+                            angle_diff = 360 - angle_diff
+                        print(
+                            f"[SEEN] "
+                            f"ID={track_id} "
+                            f"CLASS={class_name}",
+                            flush=True
+                        )
+                        print(
+                            f"[ANGLE CHECK] "
+                            f"ID={track_id} "
+                            f"VEHICLE={vehicle_angle:.2f} "
+                            f"FLOW={flow_angle:.2f} "
+                            f"DIFF={angle_diff:.2f}",
+                            flush=True
+                        )
+                        if angle_diff > 150:
+                            wrong_way_count[track_id] = wrong_way_count.get(track_id, 0) + 1
+                        else:
+                            wrong_way_count[track_id] = 0
+                        print(
+                            f"[ANGLE CHECK] "
+                            f"ID={track_id} "
+                            f"VEHICLE={vehicle_angle:.2f} "
+                            f"FLOW={flow_angle:.2f} "
+                            f"DIFF={angle_diff:.2f} "
+                            f"COUNT={wrong_way_count[track_id]}",
+                            flush=True
+                        )
+
                     print(
                         f"[CLASS] "
                         f"ID={track_id} "
@@ -99,6 +167,7 @@ class WrongWayDetector:
                 
                     # Ignore divider and opposite carriageway
                     if zone in ["shoulder","divider", "other_side"]:
+                        print(f"[SKIP_ZONE] ID={track_id} ZONE={zone}", flush=True)
                         continue
 
                     cv2.putText(frame,zone,(x1, y1 - 30),cv2.FONT_HERSHEY_SIMPLEX,0.5,(255, 255, 0),2)
@@ -131,6 +200,7 @@ class WrongWayDetector:
                         dx = center_x - prev_x
                         dy = center_y - prev_y
                         if abs(dx) > 50:
+                            print(f"[SKIP_DX] ID={track_id} DX={dx}", flush=True)
                             continue
                         if abs(dx) < 5 and abs(dy) < 5:
                             continue
@@ -147,6 +217,7 @@ class WrongWayDetector:
                         movement = abs(dx) + abs(dy)
 
                         if movement < 8:
+                            print(f"[SKIP_MOVE] ID={track_id} MOVE={movement}", flush=True)
                             continue
                         flow_dx.append(dx)
                         flow_dy.append(dy)
@@ -162,21 +233,15 @@ class WrongWayDetector:
                             continue
                     
                         flow_vector = np.array([avg_dx, avg_dy])
-                        vehicle_vector = np.array([dx, dy])
+                        history = track_history[track_id]
 
-                        dot = np.dot(flow_vector, vehicle_vector)
+                        start_x, start_y = history[0]
+                        end_x, end_y = history[-1]
+
+                        traj_dx = end_x - start_x
+                        traj_dy = end_y - start_y
 
                         print(
-                            f"[DOT] ID={track_id} "
-                            f"DOT={dot:.2f}",
-                            flush=True
-                        )
-
-                        if np.dot(flow_vector, vehicle_vector) < 0:
-                            wrong_way_count[track_id] = wrong_way_count.get(track_id, 0) + 1
-                        else:
-                            wrong_way_count[track_id] = 0
-                            print(
                             f"[CHECK] ID={track_id} "
                             f"AVG_DY={avg_dy:.2f} "
                             f"DX={dx} "
@@ -184,7 +249,7 @@ class WrongWayDetector:
                             f"COUNT={wrong_way_count.get(track_id,0)}",
                             flush=True
                         )
-                        if wrong_way_count[track_id] >= 5:
+                        if wrong_way_count.get(track_id, 0) >= 5:
 
                             if track_id not in saved_violations:
                                 violation_path = output_dir / f"violation_{track_id}.jpg"
