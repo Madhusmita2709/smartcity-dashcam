@@ -6,7 +6,7 @@ from pathlib import Path
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy.orm import Session
-from streamlit import video
+
 
 from backend.app.models.video import (
     Detection,
@@ -20,6 +20,7 @@ from backend.app.schemas.config import ProcessingConfig
 from backend.app.services.processors.audio import AudioRemovalProcessor
 from backend.app.services.processors.face_blur import FaceBlurProcessor
 from backend.app.services.processors.triple_riding import TripleRidingDetector
+from backend.app.services.processors.lane_detector import detect_lanes_and_save_config
 from backend.app.services.processors.wrong_way import WrongWayDetector
 from backend.app.services.processors.frame_extractor import FrameExtractionProcessor
 from backend.app.services.processors.geotagger import GeoTaggingProcessor
@@ -115,12 +116,18 @@ class VideoProcessingPipeline:
             
             # WRONG WAY
             if (config.violation_detection.taskkillenabled and "wrong_way" in config.violation_detection.list_violations):
+                wrong_way_dir = work_dir / "wrong_way"
+                wrong_way_dir.mkdir(parents=True, exist_ok=True)
 
-                current_video, stage_logs["wrong_way"] = (
-                self.wrong_way.run(current_video,work_dir / "wrong_way",video.id))
+                print("[PIPELINE] Running lane calibration...", flush=True)
+
+                detect_lanes_and_save_config(current_video,wrong_way_dir / "config.json",wrong_way_dir / "detected_lanes.jpg")
+
+                print("[PIPELINE] Lane calibration completed", flush=True)
+
+                current_video, stage_logs["wrong_way"] = (self.wrong_way.run(current_video,wrong_way_dir,video.id))
 
             else:
-
                 stage_logs["wrong_way"] = {"status": "skipped"}
             
             # FRAME EXTRACTION
