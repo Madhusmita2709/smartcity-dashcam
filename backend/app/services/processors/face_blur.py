@@ -13,6 +13,7 @@ class FaceBlurProcessor:
         self.model = YOLO("C:/Users/madhu/Downloads/smartcity-dashcam-main/smartcity-dashcam-main/backend/app/services/processors/yolov8n-face.pt")
 
     def run(self, source: Path, config: FaceBlurConfig, output_dir: Path) -> tuple[Path, dict]:
+        print("[FACE BLUR STARTED]", flush=True)
         output_dir.mkdir(parents=True, exist_ok=True)
         target = output_dir / f"{source.stem}_faces{source.suffix}"
 
@@ -86,6 +87,12 @@ class FaceBlurProcessor:
         capture.release()
         writer.release()
 
+        print(
+            f"[FACE BLUR FINISHED] "
+            f"frames={processed_frames} "
+            f"faces={faces_detected}",
+            flush=True
+        )
         return target, {
             "status": "completed",
             "frames_processed": processed_frames,

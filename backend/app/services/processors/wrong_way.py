@@ -60,8 +60,8 @@ class WrongWayDetector:
                 "wrong_way_min_speed": 30.0
             },
             "time_range": {
-                "start_msec": 24000,
-                "end_msec": 30000
+                "start_msec": 0,
+                "end_msec": 34000
             },
             "tracker": "botsort.yaml",
             "confidence_threshold": 0.15,
@@ -134,8 +134,8 @@ class WrongWayDetector:
             
         time_range = self.config.get("time_range", {})
         start_msec = time_range.get("start_msec", 0)
-        #end_msec = time_range.get("end_msec", None)
-        end_msec = None
+        end_msec = time_range.get("end_msec", None)
+        #end_msec = None
         
         if start_msec > 0:
             cap.set(cv2.CAP_PROP_POS_MSEC, start_msec)
@@ -217,7 +217,7 @@ class WrongWayDetector:
                     cls = int(box.cls[0])
                     class_name = self.model.names[cls]
                     
-                    if class_name not in ["car", "truck", "motorcycle", "bus", "bicycle"]:
+                    if class_name not in ["car", "truck", "motorcycle", "bus"]:
                         continue
                         
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
@@ -225,14 +225,16 @@ class WrongWayDetector:
                     cy = (y1 + y2) // 2
                     
                     vehicle_boxes.append((x1, y1, x2, y2))
+                    confidence = float(box.conf[0])
                     frame_vehicles.append({
                         "id": track_id,
                         "class": class_name,
+                        "conf": confidence,
                         "box": (x1, y1, x2, y2),
                         "center": (cx, cy),
                         "bottom_center": (cx, y2)
                     })
-            
+                
             # 2. Dynamic Ego-Motion Estimation: Calculates forward camera speed using optical flow of static features on the shoulder (excluding moving vehicle boxes).
             if prev_gray is not None:
                 # Create mask for shoulder region, blacking out moving vehicles
@@ -290,11 +292,14 @@ class WrongWayDetector:
             for veh in frame_vehicles:
                 tid = veh["id"]
                 class_name = veh["class"]
+                confidence = veh["conf"]
                 x1, y1, x2, y2 = veh["box"]
                 cx, cy = veh["center"]
                 bc_x, bc_y = veh["bottom_center"]
                 
                 region = self.get_region(bc_x, bc_y)
+                if region not in monitored_regions:
+                    continue
                 bev_x, bev_y = self.to_bev(bc_x, bc_y)
                 
                 if tid not in track_history:
@@ -336,13 +341,35 @@ class WrongWayDetector:
                     
                     dt = t_end - t_start
                     if dt > 0:
+
+                        movement_pixels = np.sqrt(
+                                (img_end[0] - img_start[0]) ** 2 +
+                                (img_end[1] - img_start[1]) ** 2
+                        )
+
+                        # Ignore stationary objects
+                        if movement_pixels < 60:
+                            continue
+
                         v_rel = (bev_end[1] - bev_start[1]) / dt
                         v_abs = current_v_ego - v_rel
                         dy_speed = (img_end[1] - img_start[1]) / dt
-                        
+
+                        if abs(v_abs) < 30:
+                            continue
+                        print(
+                            f"[TRACK {tid}] "
+                            f"{class_name} "
+                            f"REGION={region} "
+                            f"VABS={v_abs:.1f} "
+                            f"DY={dy_speed:.1f} "
+                            f"MOVE={movement_pixels:.1f}",
+                            flush=True
+                        )
                         if v_abs < -wrong_way_min_speed and dy_speed > 35.0:
                             is_wrong_way = True
-                            
+                if len(track_history[tid]["img_positions"]) < 8:
+                    continue            
                 if region in monitored_regions and is_wrong_way:
                     wrong_way_frames[tid] = wrong_way_frames.get(tid, 0) + 1
                 else:
@@ -350,13 +377,13 @@ class WrongWayDetector:
                         wrong_way_frames[tid] = max(0, wrong_way_frames.get(tid, 0) - 1)
                     
                 # 5. Violation flagging: Marks vehicle as a wrong-way violator if wrong-way counter exceeds threshold or if previously flagged.
-                if wrong_way_frames.get(tid, 0) >= 5 or tid in flagged_wrong_way:
+                if wrong_way_frames.get(tid, 0) >= 3 or tid in flagged_wrong_way:
                     flagged_wrong_way.add(tid)
                     
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
                     cv2.putText(
                         frame,
-                        f"WRONG WAY {class_name.upper()} ID:{tid}",
+                        f"WRONG WAY {class_name.upper()} {confidence:.2f} ID:{tid}",
                         (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
@@ -370,9 +397,11 @@ class WrongWayDetector:
                         plate_number = "UNKNOWN"
 
                         try:
-                            plate_results = self.plate_reader.read_plate(frame, tid)
+                            vehicle_crop = frame[y1:y2, x1:x2]
+                            plate_results = self.plate_reader.read_plate(vehicle_crop, tid)
                             print(f"[OCR] Results = {plate_results}", flush=True)
 
+                            candidate = "UNKNOWN"
                             if plate_results:
                                 candidate = plate_results[0].get("plate", "UNKNOWN")
 

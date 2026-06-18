@@ -212,7 +212,7 @@ def detect_lanes_and_save_config(video_path, output_config_path, debug_image_pat
     if "speed_thresholds" not in config_data:
         config_data["speed_thresholds"] = {"stationary_max_speed": 80.0, "wrong_way_min_speed": 30.0}
     if "time_range" not in config_data:
-        config_data["time_range"] = {"start_msec": 24000, "end_msec": 30000}
+        config_data["time_range"] = {"start_msec": 0, "end_msec": 34000}
     if "tracker" not in config_data:
         config_data["tracker"] = "botsort.yaml"
     if "confidence_threshold" not in config_data:
