@@ -212,7 +212,7 @@ def detect_lanes_and_save_config(video_path, output_config_path, debug_image_pat
     if "speed_thresholds" not in config_data:
         config_data["speed_thresholds"] = {"stationary_max_speed": 80.0, "wrong_way_min_speed": 30.0}
     if "time_range" not in config_data:
-        config_data["time_range"] = {"start_msec": 0, "end_msec": 34000}
+        config_data["time_range"] = {"start_msec": 0, "end_msec": 59000}
     if "tracker" not in config_data:
         config_data["tracker"] = "botsort.yaml"
     if "confidence_threshold" not in config_data:
@@ -251,9 +251,22 @@ def detect_lanes_and_save_config(video_path, output_config_path, debug_image_pat
     print(f"[LANE DETECTOR] Debug lane visualization saved to {debug_image_path}", flush=True)
     return True
 
-if __name__ == "__main__":
-    video_path = r"c:\Users\DELL\Desktop\Code More\wrong-way-detection\wrong_way-video.mp4"
-    config_path = r"c:\Users\DELL\Desktop\Code More\wrong-way-detection\config.json"
-    debug_path = r"c:\Users\DELL\Desktop\Code More\wrong-way-detection\detected_lanes.jpg"
+#if __name__ == "__main__":
+    #video_path = r"c:\Users\DELL\Desktop\Code More\wrong-way-detection\wrong_way-video.mp4"
+    #config_path = r"c:\Users\DELL\Desktop\Code More\wrong-way-detection\config.json"
+    #debug_path = r"c:\Users\DELL\Desktop\Code More\wrong-way-detection\detected_lanes.jpg"
     
-    detect_lanes_and_save_config(video_path, config_path, debug_path)
+    #detect_lanes_and_save_config(video_path, config_path, debug_path)
+
+if __name__ == "__main__":
+
+    video_path = r"C:\videoset1_videos_part1\lane_change\20211125134600_0060.mp4"
+    config_path = r"C:\Users\madhu\Videos\config.json"
+
+    debug_path = r"C:\Users\madhu\Videos\detected_lanes.jpg"
+
+    detect_lanes_and_save_config(
+        video_path,
+        config_path,
+        debug_path
+    )
