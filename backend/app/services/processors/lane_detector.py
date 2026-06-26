@@ -148,7 +148,26 @@ def detect_lanes_and_save_config(video_path, output_config_path, debug_image_pat
     pts_L1 = [(int(get_x_curve(fitted_curves["L1"], y)), int(y)) for y in y_steps]
     pts_L2 = [(int(get_x_curve(fitted_curves["L2"], y)), int(y)) for y in y_steps]
     pts_L3 = [(int(get_x_curve(fitted_curves["L3"], y)), int(y)) for y in y_steps]
-    
+    lane_widths = []
+
+    for p1, p2 in zip(pts_L1, pts_L2):
+
+        width = np.linalg.norm(np.array(p1) - np.array(p2))
+
+        lane_widths.append(width)
+
+    print("Lane Widths:")
+    for y, w in zip(y_steps, lane_widths):
+        print(f"Y={y}  Width={w:.2f}")
+
+    average_lane_width = float(np.mean(lane_widths))
+    lane_width_lookup = {}
+
+    for y, width in zip(y_steps, lane_widths):
+        lane_width_lookup[str(int(y))] = float(width)
+
+    print("Average Lane Width =", average_lane_width)
+
     pts_L0 = []
     pts_L4 = []
     for idx, y in enumerate(y_steps):
@@ -206,7 +225,8 @@ def detect_lanes_and_save_config(video_path, output_config_path, debug_image_pat
             [200, 1000]
         ]
     }
-    
+    config_data["lane_width_pixels"] = lane_width_lookup
+
     if "monitored_regions" not in config_data:
         config_data["monitored_regions"] = ["LANE_1", "LANE_2"]
     if "speed_thresholds" not in config_data:
@@ -260,7 +280,7 @@ def detect_lanes_and_save_config(video_path, output_config_path, debug_image_pat
 
 if __name__ == "__main__":
 
-    video_path = r"C:\videoset1_videos_part1\lane_change\20211125134600_0060.mp4"
+    video_path = r"C:\videoset1_videos_part1\20220824155045_0060speed_highway.mp4"
     config_path = r"C:\Users\madhu\Videos\config.json"
 
     debug_path = r"C:\Users\madhu\Videos\detected_lanes.jpg"
