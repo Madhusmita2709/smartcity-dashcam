@@ -183,6 +183,11 @@ def detect_lanes_and_save_config(video_path, output_config_path, debug_image_pat
         factor = (float(y) - y_top) / (y_bottom - y_top)
         offset_divider = int(15 + 85 * factor)
         pts_L3_div.append((int(pts_L3[idx][0] + offset_divider), int(y)))
+    print("\nTotal points =", len(pts_L1))
+    print("First L1 =", pts_L1[0])
+    print("First L2 =", pts_L2[0])
+    print("Last L1 =", pts_L1[-1])
+    print("Last L2 =", pts_L2[-1])
         
     # Helper: builds a polygon boundary from left and right line points.
     def make_poly(left_pts, right_pts):
@@ -211,20 +216,26 @@ def detect_lanes_and_save_config(video_path, output_config_path, debug_image_pat
             pass
             
     config_data["polygons"] = polygons
+    top_idx = 2
+    print("top_idx =", top_idx)
+    print("Top L1 =", pts_L1[top_idx])
+    print("Top L2 =", pts_L2[top_idx])
     config_data["ipm"] = {
         "src": [
-            [int(pts_L1[0][0]), int(y_top)],
-            [int(pts_L2[0][0]), int(y_top)],
-            [int(pts_L1[-1][0]), int(y_bottom)],
-            [int(pts_L2[-1][0]), int(y_bottom)]
+            [int(pts_L1[top_idx][0]), int(pts_L1[top_idx][1])],
+            [int(pts_L2[top_idx][0]), int(pts_L2[top_idx][1])],
+            [int(pts_L1[-1][0]), int(pts_L1[-1][1])],
+            [int(pts_L2[-1][0]), int(pts_L2[-1][1])]
         ],
         "dst": [
             [100, 0],
-            [200, 0],
+            [300, 0],
             [100, 1000],
-            [200, 1000]
+            [300, 1000]
         ]
     }
+    with open(output_config_path, "w") as f:
+        json.dump(config_data, f, indent=4)
     config_data["lane_width_pixels"] = lane_width_lookup
 
     if "monitored_regions" not in config_data:

@@ -22,6 +22,7 @@ from backend.app.services.processors.face_blur import FaceBlurProcessor
 from backend.app.services.processors.triple_riding import TripleRidingDetector
 from backend.app.services.processors.lane_detector import detect_lanes_and_save_config
 from backend.app.services.processors.wrong_way import WrongWayDetector
+from backend.app.services.processors.vehicle_speed import VehicleSpeedEstimator
 from backend.app.services.processors.frame_extractor import FrameExtractionProcessor
 from backend.app.services.processors.geotagger import GeoTaggingProcessor
 from backend.app.services.processors.object_detector import ObjectDetectionProcessor
@@ -44,6 +45,7 @@ class VideoProcessingPipeline:
         self.face_blur = FaceBlurProcessor()
         self.triple_riding = TripleRidingDetector()
         self.wrong_way = WrongWayDetector()
+        self.overspeed = VehicleSpeedEstimator()
         self.frame_extractor = FrameExtractionProcessor()
         self.object_detector = ObjectDetectionProcessor()
         self.geotagger = GeoTaggingProcessor()
@@ -129,6 +131,29 @@ class VideoProcessingPipeline:
 
             else:
                 stage_logs["wrong_way"] = {"status": "skipped"}
+            
+            # OVERSPEED
+            if (config.violation_detection.taskkillenabled and "overspeed" in config.violation_detection.list_violations):
+
+                overspeed_dir = work_dir / "overspeed"
+                overspeed_dir.mkdir(parents=True, exist_ok=True)
+
+                # Generate lane config for Overspeed
+                detect_lanes_and_save_config(
+                current_video,
+                overspeed_dir / "config.json",
+                overspeed_dir / "detected_lanes.jpg"
+                )
+
+                current_video, stage_logs["overspeed"] = self.overspeed.run(
+                current_video,
+                overspeed_dir,
+                video.id,
+                overspeed_dir / "config.json"
+                )
+
+            else:
+                stage_logs["overspeed"] = {"status": "skipped"}
             
             # FRAME EXTRACTION
             frames, stage_logs["frame_extraction"] = (
@@ -288,17 +313,18 @@ class VideoProcessingPipeline:
                     )
                 )
 
-            # SAVE VIOLATIONS
-            violations = stage_logs[
-                "triple_riding"
-            ].get(
-                "violations",
-                []
-            )
+            # SAVE ALL VIOLATIONS
 
-            for item in violations:
+            for stage in ["triple_riding", "wrong_way", "overspeed"]:
 
-                db.add(
+                if stage not in stage_logs:
+                    continue
+
+                violations = stage_logs[stage].get("violations", [])
+
+                for item in violations:
+
+                    db.add(
                     ViolationImage(
                         video_id=video.id,
                         timestamp_seconds=item["timestamp_seconds"],
@@ -306,13 +332,10 @@ class VideoProcessingPipeline:
                         violation_type=item["violation_type"],
                         confidence=item["confidence"],
                         image_url=item["image_url"],
+                        )
                     )
-                )
 
-            stage_logs["triple_riding"][
-                "violations_saved"
-            ] = len(violations)
-
+                stage_logs[stage]["violations_saved"] = len(violations)
             run.status = "completed"
             video.status = "processed"
 

@@ -37,7 +37,7 @@ const elements = {
   heatmapStart: document.getElementById("heatmapStart"),
   heatmapEnd: document.getElementById("heatmapEnd"),
   violationList: document.getElementById("violationList"),
-  checkViolationsBtn: document.getElementById("checkViolationsBtn"),
+  
 };
 
 function getGeoMode() {
@@ -56,10 +56,11 @@ function buildConfig() {
   if (document.getElementById("vTripleRiding").checked) {
     violations.push("triple_riding");
   }
-
   if (document.getElementById("vWrongWay").checked) {
     violations.push("wrong_way");
   }
+  if (document.getElementById("vOverspeed").checked)
+    violations.push("overspeed");
 
   return {
     audio_removal: elements.audioRemoval.checked,
@@ -160,6 +161,9 @@ if (document.getElementById("vTripleRiding").checked) {
 if (document.getElementById("vWrongWay").checked) {
   selectedViolations.push("wrong_way");
 }
+if (document.getElementById("vOverspeed").checked) {
+    selectedViolations.push("overspeed");
+}
 
 const response = await fetch(`/process/${videoId}`, {
   method: "POST",headers: {"Content-Type": "application/json"},body: JSON.stringify({violations: selectedViolations})
@@ -171,7 +175,6 @@ const response = await fetch(`/process/${videoId}`, {
     stages: payload.stages,
   });
   await loadResults(videoId);
-  await loadViolations(videoId);
   renderJobs();
   await refreshHeatmap();
 }
@@ -184,64 +187,6 @@ async function loadResults(videoId) {
   const payload = await response.json();
   updateJob(videoId, { results: payload, status: payload.status });
   renderDetections();
-}
-
-async function loadViolations() {
-  // get most recently processed video
-  const lastJob = state.jobs[state.jobs.length - 1];
-  if (!lastJob) {
-    elements.violationList.innerHTML = "<p class='summary'>No video processed yet.</p>";
-    return;
-  }
-
-  const tripleRidingChecked = document.getElementById("vTripleRiding").checked;
-  if (!tripleRidingChecked) {
-    elements.violationList.innerHTML = "<p class='summary'>Select at least one violation type.</p>";
-    return;
-  }
-
-  const response = await fetch(`/violations/${lastJob.video_id}`);
-  if (!response.ok) return;
-  const payload = await response.json();
-
-  state.violations = payload.violations.map((v) => ({
-    ...v,
-    video_id: lastJob.video_id
-  }));
-  renderViolations();
-}
-
-function renderViolations() {
-  elements.violationList.innerHTML = "";
-  if (!state.violations.length) {
-    elements.violationList.innerHTML = "<p class='summary'>No violations detected yet.</p>";
-    return;
-  }
-
-  state.violations.forEach((v, index) => {
-    const card = document.createElement("article");
-    card.className = "job-card";
-    card.innerHTML = `
-      <header>
-        <div>
-          <strong>Triple Riding — Frame ${v.frame_index}</strong>
-          <div class="summary">
-            Video ID ${v.video_id} • ${v.timestamp_seconds.toFixed(2)}s • 
-            ${v.person_count} persons • confidence ${(v.confidence * 100).toFixed(1)}%
-          </div>
-        </div>
-        <label>
-          <input type="checkbox" ${v.checked ? "checked" : ""} /> Reviewed
-        </label>
-      </header>
-    `;
-
-    card.querySelector("input[type='checkbox']").addEventListener("change", (e) => {
-      state.violations[index].checked = e.target.checked;
-    });
-
-    elements.violationList.appendChild(card);
-  });
 }
 
 function updateJob(videoId, partial) {
@@ -403,11 +348,12 @@ document.getElementById("vTripleRiding")
 document.getElementById("vWrongWay")
   .addEventListener("change", renderConfigPreview);
 
+document.getElementById("vOverspeed")
+  .addEventListener("change", renderConfigPreview);
+
 renderConfigPreview();
 renderJobs();
 renderDetections();
 toggleManualGeoFields();
-renderViolations();
 initMap();
 refreshHeatmap();
-elements.checkViolationsBtn.addEventListener("click", loadViolations);

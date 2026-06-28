@@ -271,7 +271,18 @@ def run_video(video_path: Path, config_path: Path, show_video: bool = True) -> N
         median_dy = np.percentile(np.abs(dy_values), 80)
         # Convert
         #meters = median_dy * (3.5 / 100)
-        meters_per_pixel = LANE_WIDTH_METERS / 100.0
+        #meters_per_pixel = LANE_WIDTH_METERS / 100.0
+        # Use lane width at the bottom of the BEV
+        bottom_y = max(int(k) for k in lane_width_pixels.keys())
+
+        lane_width_px = lane_width_pixels[str(bottom_y)]
+
+        #meters_per_pixel = LANE_WIDTH_METERS / lane_width_px
+        meters_per_pixel = 3.5 / 400.0
+        print(
+            f"Lane width = {lane_width_px}px | "
+            f"Meters/pixel = {meters_per_pixel:.6f}"
+        )
 
         meters = median_dy * meters_per_pixel
 
