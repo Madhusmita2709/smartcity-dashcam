@@ -61,6 +61,9 @@ function buildConfig() {
   }
   if (document.getElementById("vOverspeed").checked)
     violations.push("overspeed");
+  if (document.getElementById("vNoNumberPlate").checked) {
+    violations.push("no_number_plate");
+  }
 
   return {
     audio_removal: elements.audioRemoval.checked,
@@ -163,6 +166,9 @@ if (document.getElementById("vWrongWay").checked) {
 }
 if (document.getElementById("vOverspeed").checked) {
     selectedViolations.push("overspeed");
+}
+if (document.getElementById("vNoNumberPlate").checked) {
+    selectedViolations.push("no_number_plate");
 }
 
 const response = await fetch(`/process/${videoId}`, {
@@ -350,6 +356,9 @@ document.getElementById("vWrongWay")
 
 document.getElementById("vOverspeed")
   .addEventListener("change", renderConfigPreview);
+  
+document.getElementById("vNoNumberPlate")
+    .addEventListener("change", renderConfigPreview);
 
 renderConfigPreview();
 renderJobs();

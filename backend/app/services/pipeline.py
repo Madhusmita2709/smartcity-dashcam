@@ -23,6 +23,7 @@ from backend.app.services.processors.triple_riding import TripleRidingDetector
 from backend.app.services.processors.lane_detector import detect_lanes_and_save_config
 from backend.app.services.processors.wrong_way import WrongWayDetector
 from backend.app.services.processors.vehicle_speed import VehicleSpeedEstimator
+from backend.app.services.processors.no_number_plate import NoNumberPlateDetector
 from backend.app.services.processors.frame_extractor import FrameExtractionProcessor
 from backend.app.services.processors.geotagger import GeoTaggingProcessor
 from backend.app.services.processors.object_detector import ObjectDetectionProcessor
@@ -46,6 +47,7 @@ class VideoProcessingPipeline:
         self.triple_riding = TripleRidingDetector()
         self.wrong_way = WrongWayDetector()
         self.overspeed = VehicleSpeedEstimator()
+        self.no_number_plate = NoNumberPlateDetector()
         self.frame_extractor = FrameExtractionProcessor()
         self.object_detector = ObjectDetectionProcessor()
         self.geotagger = GeoTaggingProcessor()
@@ -154,6 +156,23 @@ class VideoProcessingPipeline:
 
             else:
                 stage_logs["overspeed"] = {"status": "skipped"}
+            
+            # NO NUMBER PLATE
+            if (config.violation_detection.taskkillenabled and "no_number_plate" in config.violation_detection.list_violations):
+
+                no_number_plate_dir = work_dir / "no_number_plate"
+                no_number_plate_dir.mkdir(parents=True, exist_ok=True)
+
+                current_video, stage_logs["no_number_plate"] = (
+                self.no_number_plate.run(
+                current_video,
+                no_number_plate_dir,
+                video.id
+                )
+                )
+
+            else:
+                stage_logs["no_number_plate"] = {"status": "skipped"}
             
             # FRAME EXTRACTION
             frames, stage_logs["frame_extraction"] = (
@@ -315,7 +334,7 @@ class VideoProcessingPipeline:
 
             # SAVE ALL VIOLATIONS
 
-            for stage in ["triple_riding", "wrong_way", "overspeed"]:
+            for stage in ["triple_riding", "wrong_way", "overspeed", "no_number_plate"]:
 
                 if stage not in stage_logs:
                     continue
