@@ -4,176 +4,370 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Video-to-Map Analytics</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <main class="page-shell">
+      
       <section class="hero">
-        <div>
-          <p class="eyebrow">Configurable Pipeline</p>
+        <div class="panel-brand-hero">
+          <p class="eyebrow">Configurable Pipeline Platform</p>
           <h1>Video-to-Map Analytics</h1>
           <p class="hero-copy">
-            Upload dashcam footage in batches, tune each processing stage, and inspect detections on a live map and heatmap.
+            Upload dashcam footage in batches, monitor neural network pipelines, and isolate geographical traffic incidents instantly.
           </p>
+          
+          <div class="stats-overview-grid">
+            <div class="metric-block-card">
+              <span class="m-value">1,248</span>
+              <span class="m-label">Videos Processed</span>
+            </div>
+            <div class="metric-block-card">
+              <span class="m-value txt-danger">892</span>
+              <span class="m-label">Violations Found</span>
+            </div>
+            <div class="metric-block-card">
+              <span class="m-value txt-green">98.7%</span>
+              <span class="m-label">Detection Accuracy</span>
+            </div>
+            <div class="metric-block-card">
+              <span class="m-value txt-purple"><span class="live-dot-pulse"></span>24/7</span>
+              <span class="m-label">System Uptime</span>
+            </div>
+          </div>
         </div>
+        
         <div class="hero-card">
-          <p>Per-video processing config is persisted as JSON and replayed by the pipeline.</p>
+          <div class="panel-head">
+            <p style="margin:0; font-weight:600;"><i class="fa-solid fa-code text-muted"></i> Pipeline Schema (JSON)</p>
+            <span class="status-live-tag"><span class="pulse-dot"></span> Active</span>
+          </div>
           <pre id="configPreview"></pre>
         </div>
       </section>
 
       <section class="grid">
-        <form id="uploadForm" class="panel form-panel">
-          <div class="panel-head">
-            <h2>Upload and Configure</h2>
-            <button type="submit">Upload Videos</button>
-          </div>
+        
+        <div class="column-left-group">
+          <form id="uploadForm" class="panel form-panel">
+            <div class="panel-head">
+              <h2>Upload and Configure</h2>
+              <button type="submit">Upload Videos</button>
+            </div>
 
-          <label class="field">
-            <span>Video files</span>
-            <input id="videoFiles" name="files" type="file" accept="video/*" multiple required />
-          </label>
+            <label class="field file-field-group">
+              <span>Video files target</span>
+              <input id="videoFiles" name="files" type="file" accept="video/*" multiple required />
+            </label>
 
-          <section class="config-section">
-            <div class="section-head">
-              <h3>Audio</h3>
-            </div>
-            <label class="checkbox-row">
-              <input id="audioRemoval" type="checkbox" checked />
-              <span>Remove audio</span>
-            </label>
-          </section>
-
-          <section class="config-section">
-            <div class="section-head">
-              <h3>Face Blurring</h3>
-            </div>
-            <label class="checkbox-row">
-              <input id="faceBlurEnabled" type="checkbox" checked />
-              <span>Enable face blurring</span>
-            </label>
-            <label class="field">
-              <span>Method</span>
-              <select id="faceBlurMethod">
-                <option value="gaussian">Gaussian</option>
-                <option value="pixelate">Pixelate</option>
-                <option value="blackout">Blackout</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Intensity <strong id="faceBlurIntensityValue">25</strong></span>
-              <input id="faceBlurIntensity" type="range" min="1" max="100" value="25" />
-            </label>
-          </section>
-
-          <section class="config-section">
-            <div class="section-head">
-              <h3>Frame Extraction</h3>
-            </div>
-            <label class="field">
-              <span>Method</span>
-              <select id="frameMethod">
-                <option value="interval">Interval</option>
-                <option value="fps">FPS</option>
-                <option value="motion_based">Motion-based</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Value</span>
-              <input id="frameValue" type="number" min="0.1" step="0.1" value="5" />
-            </label>
-            <label class="field">
-              <span>Motion threshold</span>
-              <input id="motionThreshold" type="number" min="0" step="1" value="25" />
-            </label>
-          </section>
-
-          <section class="config-section">
-            <div class="section-head">
-              <h3>Object Detection</h3>
-            </div>
-            <label class="field">
-              <span>YOLO model</span>
-              <input id="detectionModel" type="text" value="yolov8n" />
-            </label>
-            <label class="field">
-              <span>Confidence threshold</span>
-              <input id="confidenceThreshold" type="number" min="0" max="1" step="0.05" value="0.25" />
-            </label>
-            <fieldset class="checkbox-grid" id="classOptions">
-              <legend>Classes</legend>
-              <label><input type="checkbox" value="person" checked /> person</label>
-              <label><input type="checkbox" value="car" checked /> car</label>
-              <label><input type="checkbox" value="bike" checked /> bike</label>
-              <label><input type="checkbox" value="truck" /> truck</label>
-              <label><input type="checkbox" value="bus" /> bus</label>
-              <label><input type="checkbox" value="animal" /> animal</label>
-            </fieldset>
-            <div class="inline-row">
-              <input id="customClass" type="text" placeholder="Add custom class" />
-              <button type="button" id="addClassButton" class="secondary">Add</button>
-            </div>
-            <div id="customClassList" class="chip-row"></div>
-          </section>
-
-          <section class="config-section">
-            <div class="section-head">
-              <h3>Geo-tagging</h3>
-            </div>
-            <div class="radio-group">
-              <label><input type="radio" name="geoMode" value="metadata" checked /> Use metadata</label>
-              <label><input type="radio" name="geoMode" value="manual" /> Manual input</label>
-            </div>
-            <div id="manualGeoFields" class="two-column hidden">
-              <label class="field">
-                <span>Latitude</span>
-                <input id="latitude" type="number" step="0.000001" value="20.2961" />
+            <section class="config-section">
+              <div class="section-head">
+                <h3><i class="fa-solid fa-volume-high"></i> Audio</h3>
+              </div>
+              <label class="checkbox-row">
+                <input id="audioRemoval" type="checkbox" checked />
+                <span>Remove audio</span>
               </label>
-              <label class="field">
-                <span>Longitude</span>
-                <input id="longitude" type="number" step="0.000001" value="85.8245" />
+            </section>
+
+            <section class="config-section">
+              <div class="section-head">
+                <h3><i class="fa-solid fa-user-shield"></i> Face Blurring</h3>
+              </div>
+              <label class="checkbox-row">
+                <input id="faceBlurEnabled" type="checkbox" checked />
+                <span>Enable face blurring</span>
               </label>
+              <div class="two-column compactness-modifier">
+                <label class="field">
+                  <span>Method</span>
+                  <select id="faceBlurMethod">
+                    <option value="gaussian">Gaussian</option>
+                    <option value="pixelate">Pixelate</option>
+                    <option value="blackout">Blackout</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Intensity (<strong id="faceBlurIntensityValue">25</strong>)</span>
+                  <input id="faceBlurIntensity" type="range" min="1" max="100" value="25" />
+                </label>
+              </div>
+            </section>
+
+            <section class="config-section">
+              <div class="section-head">
+                <h3><i class="fa-solid fa-border-top-left"></i> Frame Extraction</h3>
+              </div>
+              <label class="field">
+                <span>Method</span>
+                <select id="frameMethod">
+                  <option value="interval">Interval</option>
+                  <option value="fps">FPS</option>
+                  <option value="motion_based">Motion-based</option>
+                </select>
+              </label>
+              <div class="two-column compactness-modifier">
+                <label class="field">
+                  <span>Value</span>
+                  <input id="frameValue" type="number" min="0.1" step="0.1" value="5" />
+                </label>
+                <label class="field">
+                  <span>Motion Threshold</span>
+                  <input id="motionThreshold" type="number" min="0" step="1" value="25" />
+                </label>
+              </div>
+            </section>
+
+            <section class="config-section">
+              <div class="section-head">
+                <h3><i class="fa-solid fa-location-crosshairs"></i> Geo-tagging</h3>
+              </div>
+              <div class="radio-group">
+                <label><input type="radio" name="geoMode" value="metadata" checked /> Use metadata</label>
+                <label><input type="radio" name="geoMode" value="manual" /> Manual input</label>
+              </div>
+              <div id="manualGeoFields" class="two-column hidden compactness-modifier">
+                <label class="field">
+                  <span>Latitude</span>
+                  <input id="latitude" type="number" step="0.000001" value="20.2961" />
+                </label>
+                <label class="field">
+                  <span>Longitude</span>
+                  <input id="longitude" type="number" step="0.000001" value="85.8245" />
+                </label>
+              </div>
+            </section>
+
+            <div class="form-footer">
+              <p id="uploadStatus">Select one or more videos to begin.</p>
+            </div>
+          </form>
+          
+          <section class="panel results-panel">
+            <div class="panel-head">
+              <h2>Processing Jobs</h2>
+              <button id="refreshHeatmap" class="secondary" type="button">Refresh Heatmap</button>
+            </div>
+            <div class="table-container">
+              <table class="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>Video File</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody id="jobListTableBody">
+                  <tr>
+                    <td class="table-truncate">video_2024_05_24.mp4</td>
+                    <td><span class="badge-status status-completed"><span class="dot-b">●</span> Completed</span></td>
+                    <td><div class="p-bar-wrapper"><div class="p-fill bg-green" style="width: 100%"></div><span>100%</span></div></td>
+                    <td class="text-muted">2 min ago</td>
+                  </tr>
+                  <tr>
+                    <td class="table-truncate">video_2024_05_24_2.mp4</td>
+                    <td><span class="badge-status status-running"><span class="dot-b">●</span> Running</span></td>
+                    <td><div class="p-bar-wrapper"><div class="p-fill bg-blue" style="width: 65%"></div><span>65%</span></div></td>
+                    <td class="text-muted">5 min ago</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="jobList" class="job-list hidden"></div>
+          </section>
+        </div>
+
+        <div class="column-right-group">
+          
+          <section class="panel engine-panel">
+            <div class="panel-head">
+              <h2>AI Models & Execution Engine</h2>
+            </div>
+            
+            <div class="engine-tabs-navigation">
+              <button type="button" id="tabBtnBuiltIn" class="tab-link active" onclick="switchEngineTab('built-in')">Built-in Models</button>
+              <button type="button" id="tabBtnCustomSpec" class="tab-link" onclick="switchEngineTab('custom-spec')">Custom Models</button>
+            </div>
+
+            <div class="panel-inner-tab-body">
+              
+              <div id="engineModulesWrapper" class="engine-modules-list">
+                
+                <div class="model-module-card">
+                  <div class="card-identity-header">
+                    <h4>Vehicle Detection</h4>
+                    <span class="architecture-subtext">YOLOv8n</span>
+                  </div>
+                  <div class="card-status-action-row">
+                    <span class="status-label-text">Status <strong class="dot-status status-active">● Active</strong></span>
+                    <button type="button" class="btn-configure-toggle" onclick="toggleDrawer('drawerVehicle')">[ Configure ]</button>
+                  </div>
+                  
+                  <div id="drawerVehicle" class="drawer-settings hidden">
+                    <div class="field">
+                      <span>YOLO model</span>
+                      <input id="detectionModel" type="text" value="yolov8n" />
+                    </div>
+                    <div class="field">
+                      <span>Confidence threshold</span>
+                      <input id="confidenceThreshold" type="number" min="0" max="1" step="0.05" value="0.25" />
+                    </div>
+                    <fieldset class="checkbox-grid" id="classOptions">
+                      <legend>Classes</legend>
+                      <label><input type="checkbox" value="person" checked /> person</label>
+                      <label><input type="checkbox" value="car" checked /> car</label>
+                      <label><input type="checkbox" value="bike" checked /> bike</label>
+                      <label><input type="checkbox" value="truck" /> truck</label>
+                      <label><input type="checkbox" value="bus" /> bus</label>
+                      <label><input type="checkbox" value="animal" /> animal</label>
+                    </fieldset>
+                    <div class="inline-row">
+                      <input id="customClass" type="text" placeholder="Add custom class" />
+                      <button type="button" id="addClassButton" class="secondary">Add</button>
+                    </div>
+                    <div id="customClassList" class="chip-row"></div>
+                    <button type="button" class="btn-save-drawer" onclick="toggleDrawer('drawerVehicle')">Save Settings</button>
+                  </div>
+                </div>
+
+                <div class="model-module-card">
+                  <div class="card-identity-header">
+                    <h4>OCR Engine</h4>
+                    <span class="architecture-subtext">PaddleOCR v1.5.2</span>
+                  </div>
+                  <div class="card-status-action-row">
+                    <span class="status-label-text">Status <strong class="dot-status status-active">● Active</strong></span>
+                    <button type="button" class="btn-configure-toggle" onclick="toggleDrawer('drawerOCR')">[ Configure ]</button>
+                  </div>
+                  <div id="drawerOCR" class="drawer-settings hidden">
+                    <div class="field">
+                      <span>Language</span>
+                      <select class="w-100"><option>English Standard</option></select>
+                    </div>
+                    <button type="button" class="btn-save-drawer" onclick="toggleDrawer('drawerOCR')">Save Settings</button>
+                  </div>
+                </div>
+
+                <div class="model-module-card">
+                  <div class="card-identity-header">
+                    <h4>Tracker</h4>
+                    <span class="architecture-subtext">ByteTrack</span>
+                  </div>
+                  <div class="card-status-action-row">
+                    <span class="status-label-text">Status <strong class="dot-status status-optional">Optional</strong></span>
+                    <button type="button" class="btn-configure-toggle" onclick="toggleDrawer('drawerTracker')">[ Configure ]</button>
+                  </div>
+                  <div id="drawerTracker" class="drawer-settings hidden">
+                    <div class="field">
+                      <span>Tracker Buffer (Frames)</span>
+                      <input type="number" value="30" />
+                    </div>
+                    <button type="button" class="btn-save-drawer" onclick="toggleDrawer('drawerTracker')">Save Settings</button>
+                  </div>
+                </div>
+
+                <div class="model-module-card">
+                  <div class="card-identity-header">
+                    <h4>License Plate</h4>
+                    <span class="architecture-subtext">license_plate.pt</span>
+                  </div>
+                  <div class="card-status-action-row">
+                    <span class="status-label-text">Status <strong class="dot-status status-active">● Active</strong></span>
+                    <button type="button" class="btn-configure-toggle" onclick="toggleDrawer('drawerPlates')">[ Configure ]</button>
+                  </div>
+                  <div id="drawerPlates" class="drawer-settings hidden">
+                    <div class="field">
+                      <span>Model File</span>
+                      <input type="text" value="license_plate.pt" />
+                    </div>
+                    <button type="button" class="btn-save-drawer" onclick="toggleDrawer('drawerPlates')">Save Settings</button>
+                  </div>
+                </div>
+
+              </div>
+
+              <div id="customModelRegistrationBox" class="model-view-block hidden">
+                <div class="custom-registration-alert">
+                  <i class="fa-solid fa-circle-info"></i> Register custom components directly into tracking loops.
+                </div>
+                
+                <div class="two-column compactness-modifier" style="margin-top:10px;">
+                  <label class="field">
+                    <span>Module ID</span>
+                    <input type="text" id="customModelId" placeholder="v_helmet" />
+                  </label>
+                  <label class="field">
+                    <span>Model Name</span>
+                    <input type="text" id="customModelName" placeholder="No Helmet Detection" />
+                  </label>
+                </div>
+
+                <div class="two-column compactness-modifier" style="margin-top:8px;">
+                  <label class="field">
+                    <span>Model File</span>
+                    <input type="file" id="customModelWeights" />
+                  </label>
+                  <label class="field">
+                    <span>Python File (.py)</span>
+                    <input type="file" id="customModelScript" />
+                  </label>
+                </div>
+
+                <button type="button" class="btn-register-action" onclick="registerCustomModelBlock()">
+                  <i class="fa-solid fa-plus"></i> Add Model
+                </button>
+              </div>
+
             </div>
           </section>
 
-          <div class="form-footer">
-            <p id="uploadStatus">Select one or more videos to begin.</p>
-          </div>
-        </form>
+          <section class="panel results-panel">
+            <div class="panel-head">
+              <h2>Violations Checklist</h2>
+            </div>
+            <div class="config-section" style="padding: 10px !important;">
+              <div class="checklist-badge-matrix">
+                
+                <label class="badge-check-row selected-state" for="vTripleRiding">
+                  <div class="badge-check-left">
+                    <input type="checkbox" value="triple_riding" id="vTripleRiding" checked />
+                    <span>Triple Riding</span>
+                  </div>
+                  <strong class="count-token danger-bg">126</strong>
+                </label>
 
-        <section class="panel results-panel">
-  <div class="panel-head">
-    <h2>Processing Jobs</h2>
-    <button id="refreshHeatmap" class="secondary" type="button">Refresh Heatmap</button>
-  </div>
-  <div id="jobList" class="job-list"></div>
-</section>
+                <label class="badge-check-row selected-state" for="vWrongWay">
+                  <div class="badge-check-left">
+                    <input type="checkbox" value="wrong_way" id="vWrongWay" checked />
+                    <span>Wrong Way</span>
+                  </div>
+                  <strong class="count-token danger-bg">89</strong>
+                </label>
 
-        <section class="panel results-panel">
-  <div class="panel-head">
-    <h2>Violations Checklist</h2>
-  </div>
-  <div class="config-section">
-    <div class="section-head">
-      <h3>Select Violation Types</h3>
-    </div>
-    <fieldset class="checkbox-grid">
-      <label><input type="checkbox" value="triple_riding" id="vTripleRiding" /> Triple Riding</label>
-      <label><input type="checkbox" disabled /> No Helmet <span class="summary">(coming soon)</span></label>
-      <label><input type="checkbox" disabled /> Red Light Jumping <span class="summary">(coming soon)</span></label>
-      <label><input type="checkbox" disabled /> No Seatbelt <span class="summary">(coming soon)</span></label>
-      <label><input type="checkbox" value="wrong_way" id="vWrongWay" /> Wrong Way Driving (Highway)</label>
-      <label><input type="checkbox" disabled /> Using Mobile While Driving <span class="summary">(coming soon)</span></label>
-      <label><input type="checkbox" value="no_number_plate" id="vNoNumberPlate"/> No Number Plate</label>
-      <label><input type="checkbox" value="overspeed" id="vOverspeed"/> Overspeeding</label>
-      <label><input type="checkbox" disabled /> Lane Changing <span class="summary">(coming soon)</span></label>
-      <label><input type="checkbox" disabled /> Parking Violation <span class="summary">(coming soon)</span></label>
-    </fieldset>
-    
-  </div>
-  <div id="violationList" class="job-list"></div>
-</section>
+                <label class="badge-check-row" for="vOverspeed">
+                  <div class="badge-check-left">
+                    <input type="checkbox" value="overspeed" id="vOverspeed"/>
+                    <span>Overspeed</span>
+                  </div>
+                  <strong class="count-token silent-bg">156</strong>
+                </label>
+
+                <label class="badge-check-row" for="vNoNumberPlate">
+                  <div class="badge-check-left">
+                    <input type="checkbox" value="no_number_plate" id="vNoNumberPlate"/>
+                    <span>No Number Plate</span>
+                  </div>
+                  <strong class="count-token silent-bg">0</strong>
+                </label>
+
+              </div>
+            </div>
+            <div id="violationList" class="job-list hidden"></div>
+          </section>
+        </div>
       </section>
 
       <section class="visualization-grid">
@@ -207,6 +401,73 @@
       </section>
     </main>
 
+    <script>
+      // Switch Custom Upload / Default Core Views
+      function switchEngineTab(tabKey) {
+        const defaultList = document.getElementById('engineModulesWrapper');
+        const customBox = document.getElementById('customModelRegistrationBox');
+        const btnBuiltIn = document.getElementById('tabBtnBuiltIn');
+        const btnCustom = document.getElementById('tabBtnCustomSpec');
+
+        if (tabKey === 'custom-spec') {
+          defaultList.classList.add('hidden');
+          customBox.classList.remove('hidden');
+          btnBuiltIn.classList.remove('active');
+          btnCustom.classList.add('active');
+        } else {
+          defaultList.classList.remove('hidden');
+          customBox.classList.add('hidden');
+          btnBuiltIn.classList.add('active');
+          btnCustom.classList.remove('active');
+        }
+      }
+
+      function toggleDrawer(drawerId) {
+        document.getElementById(drawerId).classList.toggle('hidden');
+      }
+
+      function registerCustomModelBlock() {
+        const mKey = document.getElementById('customModelId').value;
+        const mTitle = document.getElementById('customModelName').value;
+        
+        if (!mKey || !mTitle) {
+          alert('Complete registration attributes completely before context linking.');
+          return;
+        }
+
+        // Add modular block card straight into dynamic DOM list tree
+        const parentModulesList = document.getElementById('engineModulesWrapper');
+        const moduleCard = document.createElement('div');
+        moduleCard.className = 'model-module-card custom-injected-module';
+        moduleCard.innerHTML = `
+          <div class="card-identity-header">
+            <h4>${mTitle}</h4>
+            <span class="architecture-subtext">Custom Runtime Script</span>
+          </div>
+          <div class="card-status-action-row">
+            <span class="status-label-text">Status <strong class="dot-status status-active">● Active</strong></span>
+          </div>
+        `;
+        parentModulesList.appendChild(moduleCard);
+
+        // Inject inside checklist badge layer directly
+        const checklistGrid = document.querySelector('.checklist-badge-matrix');
+        const badgeCard = document.createElement('label');
+        badgeCard.className = 'badge-check-row selected-state custom-injected-item';
+        badgeCard.htmlFor = `dyn_${mKey}`;
+        badgeCard.innerHTML = `
+          <div class="badge-check-left">
+            <input type="checkbox" value="${mKey}" id="dyn_${mKey}" checked />
+            <span>${mTitle}</span>
+          </div>
+          <strong class="count-token danger-bg">Active</strong>
+        `;
+        checklistGrid.insertBefore(badgeCard, checklistGrid.firstChild);
+
+        alert(`Model configuration segment [${mTitle}] loaded successfully.`);
+        switchEngineTab('built-in');
+      }
+    </script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
     <script src="/static/app.js"></script>
