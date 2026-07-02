@@ -1,77 +1,107 @@
 /* ==========================================================================
-   Refined Layout Tweaks: Buttons & List Rows
-   ========================================================================= */
+   MLOps Mapping Tables & MinIO Tabbed Interface Layouts
+   ========================================================================== */
 
-/* 2. Uniform Width & Compact Height for Configure Buttons */
-.btn-configure-toggle {
-  background: var(--accent) !important;
-  color: #fff7ec !important;
-  border: none !important;
-  font-size: 0.78rem !important;
-  font-weight: 600 !important;
-  cursor: pointer;
-  
-  /* Precision sizing specs */
-  height: 36px !important;
-  width: 100px !important;
-  border-radius: 8px !important;
-  
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  transition: background 120ms ease;
-}
-
-.btn-configure-toggle:hover {
-  background: var(--accent-strong) !important;
-}
-
-/* 3. Strict Single Line Layout for Violation Rows */
-.badge-check-row {
+.column-left-group, .column-right-group {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(67, 46, 20, 0.06);
-  padding: 8px 14px;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Reduced configuration margins for dashboard layout scannability */
+.form-panel { gap: 12px !important; }
+.config-section { padding: 10px 14px !important; }
+.compactness-modifier { gap: 8px !important; margin-top: 4px !important; }
+
+/* Dashboard Hero Summary Metrics Panels Flow */
+.stats-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+.metric-block-card { background: rgba(255,255,255,0.5); border: 1px solid var(--panel-border); padding: 10px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; }
+.metric-block-card .m-value { font-family: Georgia, serif; font-size: 1.4rem; font-weight: 800; color: var(--text); }
+.metric-block-card .m-label { font-size: 0.7rem; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+
+.status-live-tag { font-size: 0.75rem; font-weight: 700; color: #15803d; background: rgba(22, 163, 74, 0.1); padding: 4px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 6px; }
+.pulse-dot { width: 6px; height: 6px; background-color: #22c55e; border-radius: 50%; }
+
+/* Segmented Engine Context Selector Tabs */
+.engine-tabs-navigation {
+  display: flex;
+  background: rgba(67, 46, 20, 0.04);
+  padding: 3px;
   border-radius: 10px;
-  cursor: pointer;
-  height: 42px; /* Enforces absolute cross-row height uniformity */
-  transition: background 0.1s ease;
+  border: 1px solid rgba(67, 46, 20, 0.06);
+  margin-bottom: 10px;
+}
+.tab-link { flex: 1; background: transparent; border: none; padding: 6px; font-size: 0.8rem; font-weight: 600; color: var(--muted); border-radius: 8px; cursor: pointer; }
+.tab-link.active { background: #fff; color: var(--accent-strong); box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+.panel-inner-tab-body { display: flex; flex-direction: column; gap: 10px; }
+
+/* MLOps Dynamic Assignment Configuration Matrix Tables */
+.mapping-table th { background: rgba(67, 46, 20, 0.03); font-size: 0.7rem !important; }
+.mapping-table td { padding: 8px 10px !important; font-size: 0.8rem !important; }
+.v-align-top { vertical-align: top !important; padding-top: 10px !important; background: rgba(67, 46, 20, 0.01); }
+.row-divider td { border-top: 2px solid rgba(67, 46, 20, 0.12) !important; }
+
+.mono-font {
+  font-family: 'Fira Code', Consolas, Monaco, monospace;
+  font-size: 0.76rem !important;
+  color: var(--accent-strong);
 }
 
-.badge-check-row:hover {
-  background: rgba(255, 255, 255, 0.8);
-}
-
-.badge-check-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.86rem;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Ensure checkbox alignment doesn't break alignment flow */
-.badge-check-left input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent-strong);
-  cursor: pointer;
-  margin: 0;
-  flex-shrink: 0;
-}
-
-.count-token {
-  font-family: monospace;
-  font-size: 0.78rem;
+.badge-source {
+  font-size: 0.66rem;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 5px;
-  min-width: 38px;
-  text-align: right; /* Keeps numbers aligned cleanly along the right spine */
-  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(141, 79, 24, 0.08); 
+  color: var(--accent);
 }
+
+/* Custom Overrides Dropdowns Injection Group Box */
+.dynamic-tasks-form-box {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(255,255,255,0.4);
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px dashed rgba(67, 46, 20, 0.1);
+}
+.custom-registration-alert { background: rgba(141, 79, 24, 0.05); border: 1px dashed rgba(141, 79, 24, 0.2); border-radius: 10px; padding: 8px 12px; font-size: 0.76rem; color: var(--muted); line-height: 1.4; }
+.btn-register-action { background: var(--accent); color: #fff; border: none; font-weight: 600; font-size: 0.82rem; padding: 12px; width: 100%; border-radius: 10px; cursor: pointer; margin-top: 8px; }
+.btn-register-action:hover { background: var(--accent-strong); }
+
+/* MinIO Asset Tree Visual Elements */
+.minio-bucket-group h5 { margin: 0 0 6px 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.minio-file-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.minio-item { font-size: 0.8rem; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.7); padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(67, 46, 20, 0.05); }
+.minio-item i { font-size: 0.84rem; }
+.text-blue { color: #2563eb; }
+.text-purple { color: #7c3aed; }
+
+/* Strict Single Line Layout for Violation Rows */
+.badge-check-row { display: flex; justify-content: space-between; align-items: center; background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(67, 46, 20, 0.06); padding: 8px 14px; border-radius: 10px; cursor: pointer; height: 42px; transition: background 0.1s ease; }
+.badge-check-row:hover { background: rgba(255, 255, 255, 0.8); }
+.badge-check-left { display: flex; align-items: center; gap: 12px; font-size: 0.86rem; font-weight: 500; }
+.badge-check-left input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent-strong); cursor: pointer; margin: 0; }
+.count-token { font-family: monospace; font-size: 0.78rem; font-weight: 700; padding: 2px 8px; border-radius: 5px; min-width: 38px; text-align: right; }
+.danger-bg { background: rgba(220, 38, 38, 0.08); color: #dc2626; }
+.silent-bg { background: rgba(67, 46, 20, 0.05); color: var(--muted); }
+
+/* Ingestion Tables layout */
+.table-container { padding: 4px 0; overflow-x: auto; }
+.dashboard-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.84rem; }
+.dashboard-table th { color: var(--muted); font-weight: 600; padding: 8px; border-bottom: 1px solid rgba(67, 46, 20, 0.1); font-size: 0.72rem; text-transform: uppercase; }
+.dashboard-table td { padding: 10px 8px; border-bottom: 1px solid rgba(67, 46, 20, 0.06); }
+.table-truncate { max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace; }
+.p-bar-wrapper { display: flex; align-items: center; gap: 6px; min-width: 100px; }
+.p-fill { height: 5px; border-radius: 2px; }
+.bg-green { background: #10b981; } .bg-blue { background: #2563eb; } .bg-red { background: #ef4444; }
+.badge-status { font-size: 0.72rem; font-weight: 600; }
+.status-completed { color: #16a34a; } .status-running { color: #2563eb; } .status-failed { color: #dc2626; }
+.w-100 { width: 100%; }

@@ -6,43 +6,280 @@
     <title>Video-to-Map Analytics</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="/static/styles.css" />
+    
+    <style>
+      /* ==========================================================================
+         1. Design Tokens, Variables & Base Reset Definitions
+         ========================================================================== */
+      :root {
+        --bg: #f3efe7;
+        --panel: rgba(255, 252, 246, 0.92);
+        --panel-border: rgba(67, 46, 20, 0.14);
+        --text: #23180a;
+        --muted: #6b5a44;
+        --accent: #8d4f18;
+        --accent-strong: #5d2f07;
+        --shadow: 0 18px 45px rgba(74, 46, 16, 0.14);
+        --radius: 22px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(255, 202, 138, 0.42), transparent 24%),
+          radial-gradient(circle at bottom right, rgba(173, 214, 188, 0.35), transparent 18%),
+          linear-gradient(135deg, #efe7da 0%, #f7f3ec 45%, #ece6db 100%);
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      /* ==========================================================================
+         2. Main Grid Layout Shell Framework (Side-by-Side Columns)
+         ========================================================================== */
+      .page-shell {
+        width: min(1440px, 100%);
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .hero, .grid, .visualization-grid {
+        display: grid;
+        gap: 20px;
+      }
+
+      .hero {
+        /* Changed to 3 columns inside the sub-stats row dynamically */
+        grid-template-columns: 1.35fr 1fr;
+        align-items: stretch;
+      }
+
+      .grid {
+        grid-template-columns: 1.15fr 0.85fr;
+      }
+
+      .visualization-grid {
+        grid-template-columns: 1.22fr 0.78fr;
+      }
+
+      .column-left-group, .column-right-group {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      @media (max-width: 1080px) {
+        .hero, .grid, .visualization-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* ==========================================================================
+         3. Panel Aesthetics
+         ========================================================================== */
+      .panel, .hero-card, .panel-brand-hero {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+        padding: 22px;
+      }
+
+      .panel-brand-hero {
+        padding: 30px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .hero h1, .panel h2, .config-section h3 {
+        font-family: Georgia, "Times New Roman", serif;
+        letter-spacing: -0.02em;
+        margin: 0 0 8px 0;
+      }
+
+      .hero h1 { font-size: clamp(2rem, 3.2vw, 3.6rem); line-height: 1.1; }
+      .eyebrow { text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.78rem; color: var(--accent); font-weight: 700; margin-bottom: 6px; }
+      .hero-copy { color: var(--muted); font-size: 1rem; line-height: 1.4; }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        gap: 12px;
+      }
+
+      /* ==========================================================================
+         4. Inputs, Dropdowns & Config Sections
+         ========================================================================== */
+      .form-panel { display: flex; flex-direction: column; gap: 14px; }
+      .config-section { padding: 14px; border: 1px solid rgba(67, 46, 20, 0.08); border-radius: 18px; background: rgba(255, 255, 255, 0.45); }
+      .config-section .section-head { margin-bottom: 8px; }
+      
+      .field, .checkbox-row, .radio-group, .two-column, .inline-row { display: grid; gap: 6px; }
+      .field span, .checkbox-row span, .config-section legend, .summary, #uploadStatus { color: var(--muted); font-size: 0.88rem; font-weight: 500; }
+      .two-column { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .inline-row { grid-template-columns: 1fr auto; align-items: end; }
+
+      input[type="text"], input[type="number"], select {
+        border-radius: 12px;
+        border: 1px solid rgba(67, 46, 20, 0.2);
+        padding: 10px 12px;
+        font: inherit;
+        background: #fff;
+        color: var(--text);
+        outline: none;
+        width: 100%;
+      }
+      input:focus, select:focus { border-color: var(--accent); }
+
+      button {
+        cursor: pointer;
+        background: var(--accent);
+        color: #fff7ec;
+        border: 1px solid transparent;
+        padding: 10px 18px;
+        border-radius: 12px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        transition: background 120ms ease;
+      }
+      button:hover { background: var(--accent-strong); }
+      button.secondary { background: transparent; color: var(--accent-strong); border: 1px solid rgba(67, 46, 20, 0.2); }
+
+      /* ==========================================================================
+         5. Metrics Display Cards & Code Output Pre Viewports
+         ========================================================================== */
+      .stats-overview-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr); /* Updated from 4 to 3 to balance accuracy removal */
+        gap: 10px;
+        margin-top: 14px;
+      }
+      .metric-block-card { background: rgba(255,255,255,0.5); border: 1px solid var(--panel-border); padding: 10px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; }
+      .metric-block-card .m-value { font-family: Georgia, serif; font-size: 1.35rem; font-weight: 800; color: var(--text); }
+      .metric-block-card .m-label { font-size: 0.68rem; text-transform: uppercase; color: var(--muted); margin-top: 2px; text-align: center; }
+
+      .status-live-tag { font-size: 0.75rem; font-weight: 700; color: #15803d; background: rgba(22, 163, 74, 0.1); padding: 4px 10px; border-radius: 20px; display: inline-flex; align-items: center; gap: 6px; }
+      .pulse-dot { width: 6px; height: 6px; background-color: #22c55e; border-radius: 50%; }
+
+      .hero-card pre {
+        margin: 0;
+        padding: 14px;
+        border-radius: 14px;
+        background: #24180a;
+        color: #f4ead8;
+        height: 230px;
+        overflow: auto;
+        font-family: monospace;
+        font-size: 0.82rem;
+      }
+
+      /* ==========================================================================
+         6. AI Model Tab Components & Dynamic Tables Layout
+         ========================================================================== */
+      .engine-tabs-navigation {
+        display: flex;
+        background: rgba(67, 46, 20, 0.04);
+        padding: 3px;
+        border-radius: 10px;
+        border: 1px solid rgba(67, 46, 20, 0.06);
+        margin-bottom: 12px;
+      }
+      .tab-link { flex: 1; background: transparent; border: none; padding: 8px; font-size: 0.8rem; font-weight: 600; color: var(--muted); border-radius: 8px; cursor: pointer; outline: none;}
+      .tab-link.active { background: #fff; color: var(--accent-strong); box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+      
+      .mapping-context-block { display: flex; flex-direction: column; width: 100%; }
+      .mapping-context-block.hidden { display: none !important; } /* Safeguards crisp toggle segmentation */
+      .mapping-table th { background: rgba(67, 46, 20, 0.03); font-size: 0.72rem !important; text-transform: uppercase; }
+      .mapping-table td { padding: 8px 10px !important; font-size: 0.82rem !important; }
+      .v-align-top { vertical-align: top !important; padding-top: 10px !important; background: rgba(67, 46, 20, 0.01); }
+      .row-divider td { border-top: 1px solid rgba(67, 46, 20, 0.12) !important; }
+
+      .mono-font { font-family: monospace; font-size: 0.78rem !important; color: var(--accent-strong); font-weight: 600; }
+      .badge-source { font-size: 0.68rem; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(141, 79, 24, 0.08); color: var(--accent); }
+
+      .dynamic-tasks-form-box { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; background: rgba(255,255,255,0.4); padding: 12px; border-radius: 12px; border: 1px dashed rgba(67, 46, 20, 0.1); }
+      .btn-register-action { background: var(--accent); color: #fff; width: 100%; border-radius: 12px; padding: 12px; font-weight: 600; font-size: 0.84rem; margin-top: 10px; border: none; cursor: pointer; }
+      .btn-register-action:hover { background: var(--accent-strong); }
+
+      /* MinIO Bucket Grid Tree Elements */
+      .minio-bucket-group h5 { margin: 0 0 8px 0; font-size: 0.78rem; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+      .minio-file-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+      .minio-item { font-size: 0.8rem; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.7); padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(67, 46, 20, 0.04); }
+      
+      /* ==========================================================================
+         7. Processing Tables, Map Viewports & Checklist Lines Rows
+         ========================================================================== */
+      .table-container { padding: 4px 0; overflow-x: auto; width: 100%; }
+      .dashboard-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.84rem; }
+      .dashboard-table th { color: var(--muted); font-weight: 600; padding: 8px; border-bottom: 1px solid rgba(67, 46, 20, 0.1); font-size: 0.72rem; text-transform: uppercase; }
+      .dashboard-table td { padding: 10px 8px; border-bottom: 1px solid rgba(67, 46, 20, 0.05); color: var(--text); }
+      .table-truncate { max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace; }
+      
+      .p-bar-wrapper { display: flex; align-items: center; gap: 6px; min-width: 100px; }
+      .p-fill { height: 5px; border-radius: 2px; }
+      .bg-green { background: #10b981; } .bg-blue { background: #2563eb; } .bg-red { background: #ef4444; }
+      .badge-status { font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+
+      .checklist-badge-matrix { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      @media(max-width: 600px) { .checklist-badge-matrix { grid-template-columns: 1fr; } }
+      .badge-check-row { display: flex; justify-content: space-between; align-items: center; background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(67, 46, 20, 0.06); padding: 8px 14px; border-radius: 10px; cursor: pointer; height: 44px; }
+      .badge-check-row:hover { background: rgba(255, 255, 255, 0.8); }
+      .badge-check-left { display: flex; align-items: center; gap: 12px; font-size: 0.86rem; font-weight: 500; }
+      .badge-check-left input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent-strong); cursor: pointer; }
+      
+      /* Hidden utility class */
+      .hidden { display: none !important; }
+
+      #map { height: 480px; width: 100%; border-radius: 18px; border: 1px solid var(--panel-border); position: relative; z-index: 1; }
+      .filter-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+      .custom-registration-alert { background: rgba(141, 79, 24, 0.05); border: 1px dashed rgba(141, 79, 24, 0.2); border-radius: 10px; padding: 8px 12px; font-size: 0.76rem; color: var(--muted); line-height: 1.4; }
+    </style>
   </head>
   <body>
     <main class="page-shell">
       
       <section class="hero">
         <div class="panel-brand-hero">
-          <p class="eyebrow">Configurable Pipeline Platform</p>
-          <h1>Video-to-Map Analytics</h1>
-          <p class="hero-copy">
-            Upload dashcam footage in batches, monitor neural network pipelines, and isolate geographical traffic incidents instantly.
-          </p>
+          <div>
+            <p class="eyebrow">Configurable Pipeline Platform</p>
+            <h1>Video-to-Map Analytics</h1>
+            <p class="hero-copy">
+              Upload dashcam footage in batches, monitor core execution metrics, and isolate geographical traffic incidents instantly.
+            </p>
+          </div>
           
           <div class="stats-overview-grid">
             <div class="metric-block-card">
               <span class="m-value">1,248</span>
-              <span class="m-label">Videos Processed</span>
+              <span class="m-label">Videos</span>
             </div>
             <div class="metric-block-card">
               <span class="m-value txt-danger">892</span>
-              <span class="m-label">Violations Found</span>
-            </div>
-            <div class="metric-block-card">
-              <span class="m-value txt-green">98.7%</span>
-              <span class="m-label">Detection Accuracy</span>
+              <span class="m-label">Violations</span>
             </div>
             <div class="metric-block-card">
               <span class="m-value txt-purple"><span class="live-dot-pulse"></span>24/7</span>
-              <span class="m-label">System Uptime</span>
+              <span class="m-label">Engine</span>
             </div>
           </div>
         </div>
         
         <div class="hero-card">
           <div class="panel-head">
-            <p style="margin:0; font-weight:600;"><i class="fa-solid fa-code text-muted"></i> Pipeline Schema (JSON)</p>
-            <span class="status-live-tag"><span class="pulse-dot"></span> Active</span>
+            <p style="margin:0; font-weight:600;"><i class="fa-solid fa-code text-muted"></i> Pipeline Configuration Matrix (JSON)</p>
+            <span class="status-live-tag"><span class="pulse-dot"></span> Core Active</span>
           </div>
           <pre id="configPreview"></pre>
         </div>
@@ -141,7 +378,7 @@
             </section>
 
             <div class="form-footer">
-              <p id="uploadStatus">Select one or more videos to begin.</p>
+              <p id="uploadStatus">Ready for input registration streams.</p>
             </div>
           </form>
           
@@ -157,26 +394,14 @@
                     <th>Video File</th>
                     <th>Status</th>
                     <th>Progress</th>
-                    <th>Time</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody id="jobListTableBody">
-                  <tr>
-                    <td class="table-truncate">video_2024_05_24.mp4</td>
-                    <td><span class="badge-status status-completed"><span class="dot-b">●</span> Completed</span></td>
-                    <td><div class="p-bar-wrapper"><div class="p-fill bg-green" style="width: 100%"></div><span>100%</span></div></td>
-                    <td class="text-muted">2 min ago</td>
-                  </tr>
-                  <tr>
-                    <td class="table-truncate">video_2024_05_24_2.mp4</td>
-                    <td><span class="badge-status status-running"><span class="dot-b">●</span> Running</span></td>
-                    <td><div class="p-bar-wrapper"><div class="p-fill bg-blue" style="width: 65%"></div><span>65%</span></div></td>
-                    <td class="text-muted">5 min ago</td>
-                  </tr>
-                </tbody>
+                  </tbody>
               </table>
             </div>
-            <div id="jobList" class="job-list hidden"></div>
+            <div id="jobList" class="hidden"></div>
           </section>
         </div>
 
@@ -188,136 +413,42 @@
             </div>
             
             <div class="engine-tabs-navigation">
-              <button type="button" id="tabBtnBuiltIn" class="tab-link active" onclick="switchEngineTab('built-in')">Built-in Models</button>
-              <button type="button" id="tabBtnCustomSpec" class="tab-link" onclick="switchEngineTab('custom-spec')">Custom Models</button>
+              <button type="button" id="tabBtnDefaultConfig" class="tab-link active" onclick="switchMappingMode('default-view')">Default Configuration</button>
+              <button type="button" id="tabBtnCustomSpec" class="tab-link" onclick="switchMappingMode('custom-view')">Custom Configuration</button>
             </div>
 
             <div class="panel-inner-tab-body">
               
-              <div id="engineModulesWrapper" class="engine-modules-list">
-                
-                <div class="model-module-card">
-                  <div class="card-identity-header">
-                    <h4>Vehicle Detection</h4>
-                    <span class="architecture-subtext">YOLOv8n</span>
-                  </div>
-                  <div class="card-status-action-row">
-                    <span class="status-label-text">Status <strong class="dot-status status-active">● Active</strong></span>
-                    <button type="button" class="btn-configure-toggle" onclick="toggleDrawer('drawerVehicle')">[ Configure ]</button>
-                  </div>
-                  
-                  <div id="drawerVehicle" class="drawer-settings hidden">
-                    <div class="field">
-                      <span>YOLO model</span>
-                      <input id="detectionModel" type="text" value="yolov8n" />
-                    </div>
-                    <div class="field">
-                      <span>Confidence threshold</span>
-                      <input id="confidenceThreshold" type="number" min="0" max="1" step="0.05" value="0.25" />
-                    </div>
-                    <fieldset class="checkbox-grid" id="classOptions">
-                      <legend>Classes</legend>
-                      <label><input type="checkbox" value="person" checked /> person</label>
-                      <label><input type="checkbox" value="car" checked /> car</label>
-                      <label><input type="checkbox" value="bike" checked /> bike</label>
-                      <label><input type="checkbox" value="truck" /> truck</label>
-                      <label><input type="checkbox" value="bus" /> bus</label>
-                      <label><input type="checkbox" value="animal" /> animal</label>
-                    </fieldset>
-                    <div class="inline-row">
-                      <input id="customClass" type="text" placeholder="Add custom class" />
-                      <button type="button" id="addClassButton" class="secondary">Add</button>
-                    </div>
-                    <div id="customClassList" class="chip-row"></div>
-                    <button type="button" class="btn-save-drawer" onclick="toggleDrawer('drawerVehicle')">Save Settings</button>
-                  </div>
+              <div id="defaultMappingWrapper" class="mapping-context-block">
+                <div class="table-container">
+                  <table class="dashboard-table mapping-table">
+                    <thead>
+                      <tr>
+                        <th>Violation</th>
+                        <th>Detection Task</th>
+                        <th>Assigned Model</th>
+                      </tr>
+                    </thead>
+                    <tbody id="defaultMappingTableBody">
+                      </tbody>
+                  </table>
                 </div>
-
-                <div class="model-module-card">
-                  <div class="card-identity-header">
-                    <h4>OCR Engine</h4>
-                    <span class="architecture-subtext">PaddleOCR v1.5.2</span>
-                  </div>
-                  <div class="card-status-action-row">
-                    <span class="status-label-text">Status <strong class="dot-status status-active">● Active</strong></span>
-                    <button type="button" class="btn-configure-toggle" onclick="toggleDrawer('drawerOCR')">[ Configure ]</button>
-                  </div>
-                  <div id="drawerOCR" class="drawer-settings hidden">
-                    <div class="field">
-                      <span>Language</span>
-                      <select class="w-100"><option>English Standard</option></select>
-                    </div>
-                    <button type="button" class="btn-save-drawer" onclick="toggleDrawer('drawerOCR')">Save Settings</button>
-                  </div>
-                </div>
-
-                <div class="model-module-card">
-                  <div class="card-identity-header">
-                    <h4>Tracker</h4>
-                    <span class="architecture-subtext">ByteTrack</span>
-                  </div>
-                  <div class="card-status-action-row">
-                    <span class="status-label-text">Status <strong class="dot-status status-optional">Optional</strong></span>
-                    <button type="button" class="btn-configure-toggle" onclick="toggleDrawer('drawerTracker')">[ Configure ]</button>
-                  </div>
-                  <div id="drawerTracker" class="drawer-settings hidden">
-                    <div class="field">
-                      <span>Tracker Buffer (Frames)</span>
-                      <input type="number" value="30" />
-                    </div>
-                    <button type="button" class="btn-save-drawer" onclick="toggleDrawer('drawerTracker')">Save Settings</button>
-                  </div>
-                </div>
-
-                <div class="model-module-card">
-                  <div class="card-identity-header">
-                    <h4>License Plate</h4>
-                    <span class="architecture-subtext">license_plate.pt</span>
-                  </div>
-                  <div class="card-status-action-row">
-                    <span class="status-label-text">Status <strong class="dot-status status-active">● Active</strong></span>
-                    <button type="button" class="btn-configure-toggle" onclick="toggleDrawer('drawerPlates')">[ Configure ]</button>
-                  </div>
-                  <div id="drawerPlates" class="drawer-settings hidden">
-                    <div class="field">
-                      <span>Model File</span>
-                      <input type="text" value="license_plate.pt" />
-                    </div>
-                    <button type="button" class="btn-save-drawer" onclick="toggleDrawer('drawerPlates')">Save Settings</button>
-                  </div>
-                </div>
-
               </div>
 
-              <div id="customModelRegistrationBox" class="model-view-block hidden">
+              <div id="customMappingWrapper" class="mapping-context-block hidden">
                 <div class="custom-registration-alert">
-                  <i class="fa-solid fa-circle-info"></i> Register custom components directly into tracking loops.
+                  <i class="fa-solid fa-circle-nodes"></i> Remap execution task targets dynamically using active models found inside your MinIO bucket.
                 </div>
                 
-                <div class="two-column compactness-modifier" style="margin-top:10px;">
-                  <label class="field">
-                    <span>Module ID</span>
-                    <input type="text" id="customModelId" placeholder="v_helmet" />
-                  </label>
-                  <label class="field">
-                    <span>Model Name</span>
-                    <input type="text" id="customModelName" placeholder="No Helmet Detection" />
-                  </label>
+                <div class="field" style="margin-top: 10px;">
+                  <span>Target Violation Workflow</span>
+                  <select id="mappingViolationSelector"></select>
                 </div>
 
-                <div class="two-column compactness-modifier" style="margin-top:8px;">
-                  <label class="field">
-                    <span>Model File</span>
-                    <input type="file" id="customModelWeights" />
-                  </label>
-                  <label class="field">
-                    <span>Python File (.py)</span>
-                    <input type="file" id="customModelScript" />
-                  </label>
-                </div>
+                <div id="dynamicTasksContainer" class="dynamic-tasks-form-box"></div>
 
-                <button type="button" class="btn-register-action" onclick="registerCustomModelBlock()">
-                  <i class="fa-solid fa-plus"></i> Add Model
+                <button type="button" class="btn-register-action" onclick="saveCustomMappingConfiguration()">
+                  Save Configuration Override
                 </button>
               </div>
 
@@ -326,48 +457,27 @@
 
           <section class="panel results-panel">
             <div class="panel-head">
-              <h2>Violations Checklist</h2>
+              <h2>Available Models (MinIO)</h2>
             </div>
-            <div class="config-section" style="padding: 10px !important;">
-              <div class="checklist-badge-matrix">
-                
-                <label class="badge-check-row selected-state" for="vTripleRiding">
-                  <div class="badge-check-left">
-                    <input type="checkbox" value="triple_riding" id="vTripleRiding" checked />
-                    <span>Triple Riding</span>
-                  </div>
-                  <strong class="count-token danger-bg">126</strong>
-                </label>
-
-                <label class="badge-check-row selected-state" for="vWrongWay">
-                  <div class="badge-check-left">
-                    <input type="checkbox" value="wrong_way" id="vWrongWay" checked />
-                    <span>Wrong Way</span>
-                  </div>
-                  <strong class="count-token danger-bg">89</strong>
-                </label>
-
-                <label class="badge-check-row" for="vOverspeed">
-                  <div class="badge-check-left">
-                    <input type="checkbox" value="overspeed" id="vOverspeed"/>
-                    <span>Overspeed</span>
-                  </div>
-                  <strong class="count-token silent-bg">156</strong>
-                </label>
-
-                <label class="badge-check-row" for="vNoNumberPlate">
-                  <div class="badge-check-left">
-                    <input type="checkbox" value="no_number_plate" id="vNoNumberPlate"/>
-                    <span>No Number Plate</span>
-                  </div>
-                  <strong class="count-token silent-bg">0</strong>
-                </label>
-
+            <div class="config-section object-storage-wrapper">
+              <div class="minio-bucket-group">
+                <h5><i class="fa-solid fa-folder-open text-blue"></i> Live Object Registry</h5>
+                <div class="minio-file-list" id="minioLiveRegistryList"></div>
               </div>
             </div>
-            <div id="violationList" class="job-list hidden"></div>
+          </section>
+
+          <section class="panel results-panel">
+            <div class="panel-head">
+              <h2>Violations Checklist</h2>
+            </div>
+            <div class="config-section" style="padding: 14px !important;">
+              <div class="checklist-badge-matrix" id="violationsChecklistGrid"></div>
+            </div>
+            <div id="violationList" class="hidden"></div>
           </section>
         </div>
+        
       </section>
 
       <section class="visualization-grid">
@@ -387,12 +497,9 @@
                 <option value="person">person</option>
                 <option value="car">car</option>
                 <option value="bike">bike</option>
-                <option value="truck">truck</option>
-                <option value="bus">bus</option>
-                <option value="animal">animal</option>
               </select>
-              <input id="heatmapStart" type="number" min="0" step="1" value="0" placeholder="Start seconds" />
-              <input id="heatmapEnd" type="number" min="0" step="1" value="3600" placeholder="End seconds" />
+              <input id="heatmapStart" type="number" min="0" value="0" placeholder="Start s" />
+              <input id="heatmapEnd" type="number" min="0" value="3600" placeholder="End s" />
             </div>
           </div>
           <div id="heatmapSummary" class="summary"></div>
@@ -401,75 +508,414 @@
       </section>
     </main>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+    
     <script>
-      // Switch Custom Upload / Default Core Views
-      function switchEngineTab(tabKey) {
-        const defaultList = document.getElementById('engineModulesWrapper');
-        const customBox = document.getElementById('customModelRegistrationBox');
-        const btnBuiltIn = document.getElementById('tabBtnBuiltIn');
-        const btnCustom = document.getElementById('tabBtnCustomSpec');
+      const state = {
+        jobs: [],
+        customClasses: [],
+        violations: [],
+        map: null,
+        markersLayer: null,
+        heatLayer: null,
+        
+        activeMappingMode: "default-view",
+        availableModels: [],      
+        pipelineBlueprints: {},    
+        customOverrides: {}        
+      };
 
-        if (tabKey === 'custom-spec') {
-          defaultList.classList.add('hidden');
-          customBox.classList.remove('hidden');
-          btnBuiltIn.classList.remove('active');
-          btnCustom.classList.add('active');
-        } else {
-          defaultList.classList.remove('hidden');
-          customBox.classList.add('hidden');
-          btnBuiltIn.classList.add('active');
-          btnCustom.classList.remove('active');
+      const elements = {
+        uploadForm: document.getElementById("uploadForm"),
+        videoFiles: document.getElementById("videoFiles"),
+        audioRemoval: document.getElementById("audioRemoval"),
+        faceBlurEnabled: document.getElementById("faceBlurEnabled"),
+        faceBlurMethod: document.getElementById("faceBlurMethod"),
+        faceBlurIntensity: document.getElementById("faceBlurIntensity"),
+        faceBlurIntensityValue: document.getElementById("faceBlurIntensityValue"),
+        frameMethod: document.getElementById("frameMethod"),
+        frameValue: document.getElementById("frameValue"),
+        motionThreshold: document.getElementById("motionThreshold"),
+        latitude: document.getElementById("latitude"),
+        longitude: document.getElementById("longitude"),
+        manualGeoFields: document.getElementById("manualGeoFields"), /* Explicitly captured row reference */
+        uploadStatus: document.getElementById("uploadStatus"),
+        configPreview: document.getElementById("configPreview"),
+        
+        defaultMappingTableBody: document.getElementById("defaultMappingTableBody"),
+        customMappingWrapper: document.getElementById("customMappingWrapper"),
+        defaultMappingWrapper: document.getElementById("defaultMappingWrapper"),
+        mappingViolationSelector: document.getElementById("mappingViolationSelector"),
+        dynamicTasksContainer: document.getElementById("dynamicTasksContainer"),
+        minioLiveRegistryList: document.getElementById("minioLiveRegistryList"),
+        violationsChecklistGrid: document.getElementById("violationsChecklistGrid"),
+        tabBtnDefaultConfig: document.getElementById("tabBtnDefaultConfig"),
+        tabBtnCustomSpec: document.getElementById("tabBtnCustomSpec"),
+        heatmapObjectFilter: document.getElementById("heatmapObjectFilter"),
+        heatmapStart: document.getElementById("heatmapStart"),
+        heatmapEnd: document.getElementById("heatmapEnd"),
+        heatmapSummary: document.getElementById("heatmapSummary"),
+        detectionList: document.getElementById("detectionList")
+      };
+
+      // Ingest structural environments dynamically via API response maps
+      async function initializePlatformArchitecture() {
+        try {
+          const [modelsResponse, pipelineResponse] = await Promise.all([
+            fetch('/api/models').then(r => r.ok ? r.json() : ["yolov8n.pt", "best.pt", "license_plate.pt", "tracker.yaml"]),
+            fetch('/api/pipeline/blueprint').then(r => r.ok ? r.json() : {
+              "triple_riding": { "name": "Triple Riding", "tasks": ["Vehicle Detection", "Person Detection", "Tracking"], "defaults": { "vehicle_detection": "yolov8n.pt", "person_detection": "best.pt", "tracking": "tracker.yaml" } },
+              "wrong_way": { "name": "Wrong Way", "tasks": ["Vehicle Detection", "Tracking"], "defaults": { "vehicle_detection": "yolov8n.pt", "tracking": "tracker.yaml" } },
+              "overspeed": { "name": "Overspeeding", "tasks": ["Vehicle Detection", "Tracking"], "defaults": { "vehicle_detection": "yolov8n.pt", "tracking": "tracker.yaml" } },
+              "no_number_plate": { "name": "No Number Plate", "tasks": ["Plate Detection", "OCR"], "defaults": { "plate_detection": "license_plate.pt", "ocr": "best.pt" } }
+            })
+          ]);
+
+          state.availableModels = modelsResponse;
+          state.pipelineBlueprints = pipelineResponse;
+
+          renderMinioObjectRegistry();
+          renderDefaultMappingMatrix();
+          populateViolationSelectors();
+          renderDataDrivenChecklist();
+          
+          if (elements.mappingViolationSelector) {
+            elements.mappingViolationSelector.addEventListener('change', (e) => handleViolationWorkflowChange(e.target.value));
+          }
+        } catch (err) {
+          console.error("Critical Ingestion Initialization Interruption:", err);
         }
       }
 
-      function toggleDrawer(drawerId) {
-        document.getElementById(drawerId).classList.toggle('hidden');
+      function renderMinioObjectRegistry() {
+        if (!elements.minioLiveRegistryList) return;
+        elements.minioLiveRegistryList.innerHTML = "";
+        state.availableModels.forEach(modelFile => {
+          const item = document.createElement('div');
+          item.className = 'minio-item';
+          item.innerHTML = `<i class="fa-regular fa-circle-check text-green"></i> <span class="mono-font">${modelFile}</span>`;
+          elements.minioLiveRegistryList.appendChild(item);
+        });
       }
 
-      function registerCustomModelBlock() {
-        const mKey = document.getElementById('customModelId').value;
-        const mTitle = document.getElementById('customModelName').value;
+      function renderDefaultMappingMatrix() {
+        if (!elements.defaultMappingTableBody) return;
+        elements.defaultMappingTableBody.innerHTML = "";
+        let absoluteFirstRow = true;
+
+        Object.entries(state.pipelineBlueprints).forEach(([violationKey, meta]) => {
+          const tasksCount = meta.tasks.length;
+          meta.tasks.forEach((taskName, idx) => {
+            const tr = document.createElement('tr');
+            if (idx === 0 && !absoluteFirstRow) tr.className = "row-divider";
+            absoluteFirstRow = false;
+
+            const taskKey = taskName.toLowerCase().replace(" ", "_");
+            const assignedModel = meta.defaults[taskKey] || state.availableModels[0] || "unassigned.pt";
+
+            if (idx === 0) {
+              tr.innerHTML = `
+                <td rowspan="${tasksCount}" class="v-align-top"><strong>${meta.name}</strong></td>
+                <td>${taskName}</td>
+                <td class="mono-font">${assignedModel}</td>
+              `;
+            } else {
+              tr.innerHTML = `
+                <td>${taskName}</td>
+                <td class="mono-font">${assignedModel}</td>
+              `;
+            }
+            elements.defaultMappingTableBody.appendChild(tr);
+          });
+        });
+      }
+
+      function populateViolationSelectors() {
+        if (!elements.mappingViolationSelector) return;
+        elements.mappingViolationSelector.innerHTML = "";
+        Object.entries(state.pipelineBlueprints).forEach(([key, meta]) => {
+          const opt = document.createElement('option');
+          opt.value = key;
+          opt.textContent = meta.name;
+          elements.mappingViolationSelector.appendChild(opt);
+        });
+      }
+
+      function renderDataDrivenChecklist() {
+        if (!elements.violationsChecklistGrid) return;
+        elements.violationsChecklistGrid.innerHTML = "";
+
+        Object.entries(state.pipelineBlueprints).forEach(([key, meta]) => {
+          const label = document.createElement('label');
+          label.className = "badge-check-row";
+          label.htmlFor = `v_${key}`;
+          
+          // FIXED: Extracted and removed numerical data token wrappers completely
+          label.innerHTML = `
+            <div class="badge-check-left">
+              <input type="checkbox" value="${key}" id="v_${key}" checked />
+              <span>${meta.name}</span>
+            </div>
+          `;
+          label.querySelector('input').addEventListener('change', renderConfigPreview);
+          elements.violationsChecklistGrid.appendChild(label);
+        });
+      }
+
+      // FIXED: Toggles custom/default interfaces natively using standard atomic hidden attributes
+      window.switchMappingMode = function(modeKey) {
+        state.activeMappingMode = modeKey;
+        const isCustom = (modeKey === 'custom-view');
         
-        if (!mKey || !mTitle) {
-          alert('Complete registration attributes completely before context linking.');
+        elements.defaultMappingWrapper.classList.toggle('hidden', isCustom);
+        elements.customMappingWrapper.classList.toggle('hidden', !isCustom);
+        
+        elements.tabBtnDefaultConfig.classList.toggle('active', !isCustom);
+        elements.tabBtnCustomSpec.classList.toggle('active', isCustom);
+
+        if (isCustom && elements.mappingViolationSelector) {
+          window.handleViolationWorkflowChange(elements.mappingViolationSelector.value);
+        }
+        renderConfigPreview();
+      };
+
+      window.handleViolationWorkflowChange = function(violationId) {
+        if (!elements.dynamicTasksContainer) return;
+        elements.dynamicTasksContainer.innerHTML = "";
+        const meta = state.pipelineBlueprints[violationId];
+        if (!meta) return;
+        
+        meta.tasks.forEach(taskName => {
+          const fieldDiv = document.createElement('div');
+          fieldDiv.className = 'field';
+          fieldDiv.innerHTML = `<span>${taskName}</span>`;
+          
+          const select = document.createElement('select');
+          select.className = "w-100";
+          select.dataset.task = taskName.toLowerCase().replace(" ", "_");
+          
+          state.availableModels.forEach(modelFile => {
+            const option = document.createElement('option');
+            option.value = modelFile;
+            option.textContent = modelFile;
+            if (meta.defaults[select.dataset.task] === modelFile) option.selected = true;
+            select.appendChild(option);
+          });
+          
+          fieldDiv.appendChild(select);
+          elements.dynamicTasksContainer.appendChild(fieldDiv);
+        });
+      };
+
+      window.saveCustomMappingConfiguration = function() {
+        const violationId = elements.mappingViolationSelector.value;
+        const dropdowns = elements.dynamicTasksContainer.querySelectorAll('select');
+        if (!state.customOverrides[violationId]) state.customOverrides[violationId] = {};
+        
+        dropdowns.forEach(select => {
+          state.customOverrides[violationId][select.dataset.task] = select.value;
+        });
+        renderConfigPreview();
+        alert(`Custom model override parameters successfully saved into active state context.`);
+      };
+
+      function getGeoMode() {
+        const checkedRadio = document.querySelector('input[name="geoMode"]:checked');
+        return checkedRadio ? checkedRadio.value : "metadata";
+      }
+
+      function buildConfig() {
+        const mode = getGeoMode();
+        const activeViolations = [];
+        Object.keys(state.pipelineBlueprints).forEach(key => {
+          const cb = document.getElementById(`v_${key}`);
+          if (cb && cb.checked) activeViolations.push(key);
+        });
+
+        return {
+          audio_removal: elements.audioRemoval ? elements.audioRemoval.checked : true,
+          face_blur: {
+            enabled: elements.faceBlurEnabled ? elements.faceBlurEnabled.checked : true,
+            method: elements.faceBlurMethod ? elements.faceBlurMethod.value : "gaussian",
+            intensity: elements.faceBlurIntensity ? Number(elements.faceBlurIntensity.value) : 25,
+          },
+          frame_extraction: {
+            method: elements.frameMethod ? elements.frameMethod.value : "interval",
+            value: elements.frameValue ? Number(elements.frameValue.value) : 5,
+            motion_threshold: elements.motionThreshold ? Number(elements.motionThreshold.value) : 25,
+          },
+          geo_tagging: {
+            mode,
+            latitude: mode === "manual" && elements.latitude ? Number(elements.latitude.value) : null,
+            longitude: mode === "manual" && elements.longitude ? Number(elements.longitude.value) : null,
+          },
+          violation_pipeline: {
+            active_workflows: activeViolations,
+            orchestration_strategy: state.activeMappingMode === "custom-view" ? "custom" : "default",
+            custom_overrides: state.customOverrides
+          }
+        };
+      }
+
+      function renderConfigPreview() {
+        if (elements.configPreview) {
+          elements.configPreview.textContent = JSON.stringify(buildConfig(), null, 2);
+        }
+      }
+
+      async function uploadVideos(event) {
+        event.preventDefault();
+        const files = Array.from(elements.videoFiles.files);
+        if (!files.length) return;
+
+        const formData = new FormData();
+        files.forEach((file) => formData.append("files", file));
+        formData.append("config_json", JSON.stringify(buildConfig()));
+
+        elements.uploadStatus.textContent = "Uploading videos...";
+        const response = await fetch("/upload", { method: "POST", body: formData });
+        if (!response.ok) {
+          elements.uploadStatus.textContent = "Upload execution failed.";
           return;
         }
 
-        // Add modular block card straight into dynamic DOM list tree
-        const parentModulesList = document.getElementById('engineModulesWrapper');
-        const moduleCard = document.createElement('div');
-        moduleCard.className = 'model-module-card custom-injected-module';
-        moduleCard.innerHTML = `
-          <div class="card-identity-header">
-            <h4>${mTitle}</h4>
-            <span class="architecture-subtext">Custom Runtime Script</span>
-          </div>
-          <div class="card-status-action-row">
-            <span class="status-label-text">Status <strong class="dot-status status-active">● Active</strong></span>
-          </div>
-        `;
-        parentModulesList.appendChild(moduleCard);
-
-        // Inject inside checklist badge layer directly
-        const checklistGrid = document.querySelector('.checklist-badge-matrix');
-        const badgeCard = document.createElement('label');
-        badgeCard.className = 'badge-check-row selected-state custom-injected-item';
-        badgeCard.htmlFor = `dyn_${mKey}`;
-        badgeCard.innerHTML = `
-          <div class="badge-check-left">
-            <input type="checkbox" value="${mKey}" id="dyn_${mKey}" checked />
-            <span>${mTitle}</span>
-          </div>
-          <strong class="count-token danger-bg">Active</strong>
-        `;
-        checklistGrid.insertBefore(badgeCard, checklistGrid.firstChild);
-
-        alert(`Model configuration segment [${mTitle}] loaded successfully.`);
-        switchEngineTab('built-in');
+        const payload = await response.json();
+        state.jobs = payload.items.map((item) => ({ ...item, processing: false, stages: null, results: null }));
+        elements.uploadStatus.textContent = `Uploaded ${payload.items.length} video(s).`;
+        renderJobs();
       }
+
+      async function processVideo(videoId) {
+        const targetJob = state.jobs.find(j => j.video_id === videoId);
+        if (targetJob) targetJob.processing = true;
+        renderJobs();
+        
+        const response = await fetch(`/process/${videoId}`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(buildConfig())
+        });
+        
+        const payload = await response.json();
+        const updatedJob = state.jobs.find(j => j.video_id === videoId);
+        if (updatedJob) {
+          updatedJob.processing = false;
+          updatedJob.status = payload.status || "Completed";
+          updatedJob.stages = payload.stages;
+        }
+        await loadResults(videoId);
+        renderJobs();
+        await refreshHeatmap();
+      }
+
+      async function loadResults(videoId) {
+        const response = await fetch(`/results/${videoId}`);
+        if (!response.ok) return;
+        const payload = await response.json();
+        const targetJob = state.jobs.find(j => j.video_id === videoId);
+        if (targetJob) {
+          targetJob.results = payload;
+          targetJob.status = payload.status;
+        }
+        renderDetections();
+      }
+
+      function renderJobs() {
+        const tableBody = document.getElementById("jobListTableBody");
+        if (!tableBody) return;
+        tableBody.innerHTML = "";
+        
+        if (!state.jobs.length) {
+          tableBody.innerHTML = `<tr><td colspan="4" class="text-muted" style="text-align:center; padding:16px;">No video processing threads active.</td></tr>`;
+          return;
+        }
+
+        state.jobs.forEach((job) => {
+          const tr = document.createElement("tr");
+          let statusClass = "status-running", statusDot = "●";
+          if (job.status === "Completed") statusClass = "status-completed";
+          if (job.status === "Failed") statusClass = "status-failed";
+
+          const progressValue = job.status === "Completed" ? 100 : (job.processing ? 45 : 0);
+          const progressColor = job.status === "Completed" ? "bg-green" : "bg-blue";
+
+          tr.innerHTML = `
+            <td class="table-truncate"><strong>${job.filename}</strong><br><small class="text-muted">${job.video_id}</small></td>
+            <td><span class="badge-status ${statusClass}"><span class="dot-b">${statusDot}</span> ${job.status || 'Pending'}</span></td>
+            <td>
+              <div class="p-bar-wrapper">
+                <div class="p-fill ${progressColor}" style="width: ${progressValue}%"></div>
+                <span>${progressValue}%</span>
+              </div>
+            </td>
+            <td>
+              <button type="button" class="secondary" style="padding:4px 10px; font-size:0.75rem;">
+                ${job.processing ? "Running" : "Process"}
+              </button>
+            </td>
+          `;
+          tr.querySelector("button").addEventListener("click", () => processVideo(job.video_id));
+          tableBody.appendChild(tr);
+        });
+      }
+
+      function renderDetections() {
+        if (!elements.detectionList) return;
+        const allDetections = state.jobs.flatMap((job) => job.results?.detections || []);
+        elements.detectionList.innerHTML = "";
+        if (!allDetections.length) {
+          elements.detectionList.innerHTML = "<p class='summary'>Processed detections will appear here.</p>";
+          return;
+        }
+        allDetections.slice(0, 10).forEach((detection) => {
+          const card = document.createElement("article");
+          card.className = "detection-card";
+          card.innerHTML = `<strong>${detection.object_class}</strong> - ${(detection.confidence * 100).toFixed(1)}%`;
+          elements.detectionList.appendChild(card);
+        });
+      }
+
+      function initMap() {
+        if (!document.getElementById("map")) return;
+        state.map = L.map("map").setView([20.2961, 85.8245], 13);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(state.map);
+        state.markersLayer = L.layerGroup().addTo(state.map);
+      }
+
+      async function refreshHeatmap() {
+        if (!state.map) return;
+        const response = await fetch(`/heatmap`);
+        if (!response.ok) return;
+        const points = await response.json();
+        state.markersLayer.clearLayers();
+        points.forEach(pt => L.marker([pt.latitude, pt.longitude]).addTo(state.markersLayer));
+      }
+
+      // FIXED: Enforces clear state mapping, ensuring values vanish completely unless explicitly requested via Manual Input
+      function toggleManualGeoFields() {
+        const manual = getGeoMode() === "manual";
+        if (elements.manualGeoFields) {
+          elements.manualGeoFields.classList.toggle("hidden", !manual);
+        }
+        renderConfigPreview();
+      }
+
+      if (elements.faceBlurIntensity) {
+        elements.faceBlurIntensity.addEventListener("input", () => {
+          if (elements.faceBlurIntensityValue) elements.faceBlurIntensityValue.textContent = elements.faceBlurIntensity.value;
+          renderConfigPreview();
+        });
+      }
+
+      document.querySelectorAll('input[name="geoMode"]').forEach(r => r.addEventListener("change", toggleManualGeoFields));
+      if (elements.uploadForm) elements.uploadForm.addEventListener("submit", uploadVideos);
+
+      document.addEventListener("DOMContentLoaded", () => {
+        initializePlatformArchitecture();
+        toggleManualGeoFields();
+        initMap();
+      });
     </script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
-    <script src="/static/app.js"></script>
   </body>
 </html>
