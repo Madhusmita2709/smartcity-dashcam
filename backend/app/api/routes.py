@@ -1,6 +1,6 @@
 from pathlib import Path
 import json
-MODELS_DIR = Path(__file__).resolve().parents[1] / "services" / "models"
+ENGINE_CONFIG_DIR = Path(__file__).resolve().parents[1] / "services"
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, Body
 from pydantic import ValidationError
@@ -20,7 +20,7 @@ from backend.app.schemas.api import (
 )
 from backend.app.schemas.config import (ProcessingConfig,CustomMappingRequest,)
 from backend.app.services.pipeline import VideoProcessingPipeline
-from backend.app.services.storage import save_upload_to_disk, upload_original_video, write_json
+from backend.app.services.storage import save_upload_to_disk, upload_original_video, write_json, list_available_models
 
 
 router = APIRouter()
@@ -228,15 +228,14 @@ def get_violations(video_id: int, db: Session = Depends(get_db)):
 
 @router.get("/api/models")
 def get_available_models():
-    models = []
-
-    if MODELS_DIR.exists():
-        for file in MODELS_DIR.iterdir():
-            if file.suffix == ".pt":
-                models.append(file.name)
-
+    """
+    Scans the MinIO Model Registry bucket dynamically to track present weights configurations.
+    """
+    # Call the clean MinIO scanner function directly
+    found_models = list_available_models()
+    
     return {
-        "models": sorted(models)
+        "models": sorted(found_models)
     }
 
 
@@ -255,7 +254,7 @@ def get_available_violations():
 @router.get("/api/default-mapping")
 def get_default_engine_mappings():
 
-    mapping_file = MODELS_DIR.parent / "default_mapping.json"
+    mapping_file = ENGINE_CONFIG_DIR / "default_mapping.json"
 
     if mapping_file.exists():
         try:
@@ -346,7 +345,7 @@ def save_custom_override_configuration(
     payload: CustomMappingRequest
 ):
 
-    mapping_file = MODELS_DIR.parent / "default_mapping.json"
+    mapping_file = ENGINE_CONFIG_DIR / "default_mapping.json"
 
     if mapping_file.exists():
         with open(mapping_file, "r", encoding="utf-8") as f:

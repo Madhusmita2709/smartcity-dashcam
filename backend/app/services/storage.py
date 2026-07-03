@@ -65,10 +65,12 @@ def get_minio_client():
 
 def ensure_buckets() -> None:
     client = get_minio_client()
+    models_bucket = getattr(settings, "minio_models_bucket", "models")
     for bucket_name in (
         settings.minio_originals_bucket,
         settings.minio_processed_bucket,
         settings.minio_images_bucket,
+        models_bucket, # Added here to auto-initialize
     ):
         if not client.bucket_exists(bucket_name):
             client.make_bucket(bucket_name)
@@ -122,3 +124,25 @@ def upload_processed_video(video_id: int, source: Path) -> StoredObject:
 def upload_frame_image(video_id: int, frame_index: int, source: Path) -> StoredObject:
     object_key = f"videos/{video_id}/frames/frame_{frame_index:06d}{source.suffix.lower()}"
     return upload_file(settings.minio_images_bucket, object_key, source, "image/jpeg")
+
+def list_available_models() -> list[str]:
+    """
+    Scans the dedicated MinIO weights storage bucket context dynamically 
+    to retrieve any uploaded custom model weights (.pt files).
+    """
+    try:
+        client = get_minio_client()
+        bucket_name = getattr(settings, "minio_models_bucket", "models")
+        
+        if not client.bucket_exists(bucket_name):
+            client.make_bucket(bucket_name)
+            return [] # No models exist in a brand new bucket
+            
+        objects = client.list_objects(bucket_name, recursive=True)
+        found_models = [obj.object_name for obj in objects if obj.object_name.lower().endswith(".pt")]
+        
+        return found_models # Returns exactly what is on MinIO, even if it's empty []
+        
+    except Exception as error:
+        print(f"MinIO Engine Scanner Interruption: {str(error)}")
+        return [] # Return empty on connection failure to avoid masking infrastructure issues
