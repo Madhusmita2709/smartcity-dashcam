@@ -9,7 +9,7 @@ const state = {
   
   // Real-world decoupled registry states fetched directly from server targets
   activeMappingMode: "default-view",
-  availableModels: [],       // Loaded via GET /api/models
+  availableModels: [],       // Loaded dynamically via Step 1 (GET /api/models)
   pipelineBlueprints: {},    // Loaded via orchestration settings
   customOverrides: {}        // Committed user remappings
 };
@@ -63,33 +63,46 @@ const elements = {
 // Orchestrates foundational asynchronous state pipeline retrieval from server engines
 async function initializePlatformArchitecture() {
   try {
-    // Synchronize both available weights files and logical processing metrics maps concurrently
-    const [modelsResponse, pipelineResponse] = await Promise.all([
-      fetch('/api/models').then(r => r.ok ? r.json() : ["yolov8n.pt", "best.pt", "license_plate.pt", "tracker.yaml"]),
-      fetch('/api/pipeline/blueprint').then(r => r.ok ? r.json() : {
-        "triple_riding": { "name": "Triple Riding", "tasks": ["Vehicle Detection", "Person Detection", "Tracking"], "defaults": { "vehicle_detection": "yolov8n.pt", "person_detection": "best.pt", "tracking": "tracker.yaml" } },
-        "wrong_way": { "name": "Wrong Way", "tasks": ["Vehicle Detection", "Tracking"], "defaults": { "vehicle_detection": "yolov8n.pt", "tracking": "tracker.yaml" } }
-      })
+    const [modelsResponse, mappingResponse] = await Promise.all([
+      fetch("/api/models"),
+      fetch("/api/default-mapping")
     ]);
 
-    state.availableModels = modelsResponse;
-    state.pipelineBlueprints = pipelineResponse;
+    if (!modelsResponse.ok || !mappingResponse.ok) {
+      throw new Error("Initialization failed.");
+    }
+
+    const modelsData = await modelsResponse.json();
+    const mappingData = await mappingResponse.json();
+
+    state.availableModels = modelsData.models || modelsData;
+    state.pipelineBlueprints = mappingData;
 
     renderMinioObjectRegistry();
     renderDefaultMappingMatrix();
     populateViolationSelectors();
     renderDataDrivenChecklist();
-    
-    // Bind change listener to configuration selector dropdown
+
     if (elements.mappingViolationSelector) {
-      elements.mappingViolationSelector.addEventListener('change', (e) => handleViolationWorkflowChange(e.target.value));
+      elements.mappingViolationSelector.addEventListener(
+        "change",
+        (e) => handleViolationWorkflowChange(e.target.value)
+      );
+
+      handleViolationWorkflowChange(
+        elements.mappingViolationSelector.value
+      );
     }
+
   } catch (err) {
-    console.error("Critical MLOps Engine Initialization Interruption:", err);
+    console.error(err);
+    if (elements.uploadStatus) {
+      elements.uploadStatus.textContent = "Unable to connect to backend.";
+    }
   }
 }
 
-// 2 & 8. Renders ONLY what exists inside your actual MinIO target response string arrays
+// Renders ONLY what exists inside your actual weights storage directory context
 function renderMinioObjectRegistry() {
   if (!elements.minioLiveRegistryList) return;
   elements.minioLiveRegistryList.innerHTML = "";
@@ -102,43 +115,45 @@ function renderMinioObjectRegistry() {
   });
 }
 
-// 5 & 6. Generates structural metadata layout maps directly via configuration task arrays
+// Generates structural metadata layout maps directly via configuration task arrays
 function renderDefaultMappingMatrix() {
   if (!elements.defaultMappingTableBody) return;
   elements.defaultMappingTableBody.innerHTML = "";
 
-  let absoluteFirstRow = true;
+  let first = true;
 
-  Object.entries(state.pipelineBlueprints).forEach(([violationKey, meta]) => {
-    const tasksCount = meta.tasks.length;
-    
-    meta.tasks.forEach((taskName, idx) => {
-      const tr = document.createElement('tr');
-      if (idx === 0 && !absoluteFirstRow) tr.className = "row-divider";
-      absoluteFirstRow = false;
+  Object.values(state.pipelineBlueprints).forEach(meta => {
+    // Crucial: The function signature must accept 'task'
+    meta.tasks.forEach((task, index) => {
+      const tr = document.createElement("tr");
 
-      const taskKey = taskName.toLowerCase().replace(" ", "_");
-      const assignedModel = meta.defaults[taskKey] || state.availableModels[0] || "unassigned.pt";
+      if (index === 0 && !first) tr.className = "row-divider";
+      first = false;
 
-      // HTML layout table injection uses standard rowspan matching parameters natively
-      if (idx === 0) {
+      const assignedModel = task.type === "execution_module"
+        ? (task.default.toLowerCase() === "bytetrack" ? "ByteTrack Tracker" : task.default)
+        : task.default;
+
+      if (index === 0) {
         tr.innerHTML = `
-          <td rowspan="${tasksCount}" class="v-align-top"><strong>${meta.name}</strong></td>
-          <td>${taskName}</td>
-          <td class="mono-font">${assignedModel}</td>
+        <td rowspan="${meta.tasks.length}">
+            <strong>${meta.name}</strong>
+        </td>
+        <td>${task.name}</td>
+        <td class="mono-font">${assignedModel}</td>
         `;
       } else {
         tr.innerHTML = `
-          <td>${taskName}</td>
-          <td class="mono-font">${assignedModel}</td>
+        <td>${task.name}</td>
+        <td class="mono-font">${assignedModel}</td>
         `;
       }
+
       elements.defaultMappingTableBody.appendChild(tr);
     });
   });
 }
-
-// 3. Populates target workflows strictly using registered backend properties
+// Populates target workflows strictly using registered backend properties
 function populateViolationSelectors() {
   if (!elements.mappingViolationSelector) return;
   elements.mappingViolationSelector.innerHTML = "";
@@ -151,7 +166,7 @@ function populateViolationSelectors() {
   });
 }
 
-// 3. Dynamically shapes selection card grids depending completely on backend array items
+// Dynamically shapes selection card grids depending completely on backend items
 function renderDataDrivenChecklist() {
   if (!elements.violationsChecklistGrid) return;
   elements.violationsChecklistGrid.innerHTML = "";
@@ -161,20 +176,13 @@ function renderDataDrivenChecklist() {
     label.className = "badge-check-row selected-state";
     label.htmlFor = `v_${key}`;
     
-    // Default mock intercept metrics display counts
-    const mockCounts = { triple_riding: 126, wrong_way: 89, overspeed: 156 };
-    const countVal = mockCounts[key] || 0;
-    const countBadgeClass = countVal > 0 ? "danger-bg" : "silent-bg";
-
     label.innerHTML = `
       <div class="badge-check-left">
         <input type="checkbox" value="${key}" id="v_${key}" checked />
         <span>${meta.name}</span>
       </div>
-      <strong class="count-token ${countBadgeClass}">${countVal}</strong>
     `;
     
-    // Bind live trigger loops to config string previews automatically
     label.querySelector('input').addEventListener('change', renderConfigPreview);
     elements.violationsChecklistGrid.appendChild(label);
   });
@@ -200,58 +208,85 @@ window.switchMappingMode = function(modeKey) {
   renderConfigPreview();
 };
 
-// 4. Filters dropdown files selecting ONLY valid models registered inside state arrays
 window.handleViolationWorkflowChange = function(violationId) {
-  if (!elements.dynamicTasksContainer) return;
-  elements.dynamicTasksContainer.innerHTML = "";
-  
-  const meta = state.pipelineBlueprints[violationId];
-  if (!meta) return;
-  
-  meta.tasks.forEach(taskName => {
-    const fieldDiv = document.createElement('div');
-    fieldDiv.className = 'field';
-    
-    const span = document.createElement('span');
-    span.textContent = taskName;
-    
-    const select = document.createElement('select');
-    select.className = "w-100";
-    select.dataset.task = taskName.toLowerCase().replace(" ", "_");
-    
-    state.availableModels.forEach(modelFile => {
-      const option = document.createElement('option');
-      option.value = modelFile;
-      option.textContent = modelFile;
-      
-      // Intelligent auto-match fallback configuration
-      if (meta.defaults[select.dataset.task] === modelFile) {
-        option.selected = true;
-      }
-      select.appendChild(option);
+    if (!elements.dynamicTasksContainer) return;
+    elements.dynamicTasksContainer.innerHTML = "";
+
+    const meta = state.pipelineBlueprints[violationId];
+    if (!meta) return;
+
+    meta.tasks.forEach(task => {
+        const wrapper = document.createElement("div");
+        wrapper.className = "field";
+
+        const label = document.createElement("span");
+        label.textContent = task.name;
+
+        const select = document.createElement("select");
+        select.className = "w-100";
+        select.dataset.task = task.id;
+
+        if (task.type === "execution_module") {
+            const option = document.createElement("option");
+            option.value = task.default;
+            option.textContent = task.default.toLowerCase() === "bytetrack" ? "ByteTrack Tracker" : `${task.default} Module`;
+            option.selected = true;
+            select.appendChild(option);
+        } else {
+            state.availableModels.forEach(model => {
+                const option = document.createElement("option");
+                option.value = model;
+                option.textContent = model;
+                if (model === task.default) option.selected = true;
+                select.appendChild(option);
+            });
+        }
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(select);
+        elements.dynamicTasksContainer.appendChild(wrapper);
     });
-    
-    fieldDiv.appendChild(span);
-    fieldDiv.appendChild(select);
-    elements.dynamicTasksContainer.appendChild(fieldDiv);
-  });
-};
+}
 
-window.saveCustomMappingConfiguration = function() {
-  const violationId = elements.mappingViolationSelector.value;
-  const dropdowns = elements.dynamicTasksContainer.querySelectorAll('select');
-  
-  if (!state.customOverrides[violationId]) {
-    state.customOverrides[violationId] = {};
-  }
-  
-  dropdowns.forEach(select => {
-    state.customOverrides[violationId][select.dataset.task] = select.value;
-  });
+window.saveCustomMappingConfiguration = async function() {
+    const violationId = elements.mappingViolationSelector.value;
+    const overrides = {};
 
-  renderConfigPreview();
-  alert(`Successfully stored configuration mapping overrides.`);
-};
+    elements.dynamicTasksContainer
+        .querySelectorAll("select")
+        .forEach(select => {
+            overrides[select.dataset.task] = select.value;
+        });
+
+    const payload = {
+        violation: violationId,
+        overrides: overrides
+    };
+
+    try {
+        const response = await fetch("/api/custom-mapping", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error();
+
+        const updated = await fetch("/api/default-mapping");
+        state.pipelineBlueprints = await updated.json();
+
+        renderDefaultMappingMatrix();
+        renderConfigPreview();
+        handleViolationWorkflowChange(violationId);
+
+        elements.uploadStatus.textContent = "✓ Configuration saved successfully.";
+    } catch(err) {
+        console.error(err);
+        elements.uploadStatus.textContent = "❌ Unable to save configuration.";
+    }
+}
 
 /* ==========================================================================
    Core Processing Operations & Form Utilities
@@ -266,7 +301,6 @@ function buildConfig() {
   const mode = getGeoMode();
   const activeViolations = [];
   
-  // Dynamically inspect data-driven checklist selectors
   Object.keys(state.pipelineBlueprints).forEach(key => {
     const cb = document.getElementById(`v_${key}`);
     if (cb && cb.checked) activeViolations.push(key);
@@ -477,7 +511,6 @@ function toggleManualGeoFields() {
   renderConfigPreview();
 }
 
-// Global UI Input Invalidation Observers
 if (elements.faceBlurIntensity) {
   elements.faceBlurIntensity.addEventListener("input", () => {
     if (elements.faceBlurIntensityValue) elements.faceBlurIntensityValue.textContent = elements.faceBlurIntensity.value;

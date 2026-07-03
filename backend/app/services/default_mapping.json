@@ -1,0 +1,72 @@
+{
+  "triple_riding": {
+    "name": "Triple Riding",
+    "tasks": [
+      {
+        "id": "vehicle_detection",
+        "name": "Vehicle Detection",
+        "type": "model",
+        "default": "yolov8n.pt"
+      },
+      {
+        "id": "person_detection",
+        "name": "Person Detection",
+        "type": "model",
+        "default": "triple_riding.pt"
+      }
+    ]
+  },
+  "wrong_way": {
+    "name": "Wrong Way",
+    "tasks": [
+      {
+        "id": "vehicle_detection",
+        "name": "Vehicle Detection",
+        "type": "model",
+        "default": "triple_riding.pt"
+      },
+      {
+        "id": "tracking",
+        "name": "Tracking",
+        "type": "execution_module",
+        "default": "bytetrack",
+        "display_name": "ByteTrack"
+      }
+    ]
+  },
+  "no_number_plate": {
+    "name": "No Number Plate",
+    "tasks": [
+      {
+        "id": "plate_detection",
+        "name": "Plate Detection",
+        "type": "model",
+        "default": "license_plate.pt"
+      },
+      {
+        "id": "ocr",
+        "name": "OCR",
+        "type": "model",
+        "default": "model (1).pt"
+      }
+    ]
+  },
+  "overspeed": {
+    "name": "Overspeeding",
+    "tasks": [
+      {
+        "id": "vehicle_detection",
+        "name": "Vehicle Detection",
+        "type": "model",
+        "default": "yolov8n.pt"
+      },
+      {
+        "id": "tracking",
+        "name": "Tracking",
+        "type": "execution_module",
+        "default": "bytetrack",
+        "display_name": "ByteTrack"
+      }
+    ]
+  }
+}

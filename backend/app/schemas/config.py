@@ -72,3 +72,14 @@ class ProcessingConfig(BaseModel):
     object_detection: ObjectDetectionConfig = Field(default_factory=ObjectDetectionConfig)
     geo_tagging: GeoTaggingConfig = Field(default_factory=GeoTaggingConfig)
     violation_detection: ViolationDetectionConfig = Field(default_factory=ViolationDetectionConfig)
+# ==========================================================
+# AI Model Configuration Schemas
+# ==========================================================
+
+class CustomMappingRequest(BaseModel):
+    """
+    Request schema for updating a single violation's
+    model/execution-module mapping.
+    """
+    violation: str
+    overrides: dict[str, str]

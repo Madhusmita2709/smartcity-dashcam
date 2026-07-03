@@ -1,6 +1,8 @@
 from pathlib import Path
+import json
+MODELS_DIR = Path(__file__).resolve().parents[1] / "services" / "models"
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, Body
 from pydantic import ValidationError
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
@@ -16,7 +18,7 @@ from backend.app.schemas.api import (
     UploadResponse,
     UploadResponseItem,
 )
-from backend.app.schemas.config import ProcessingConfig
+from backend.app.schemas.config import (ProcessingConfig,CustomMappingRequest,)
 from backend.app.services.pipeline import VideoProcessingPipeline
 from backend.app.services.storage import save_upload_to_disk, upload_original_video, write_json
 
@@ -220,3 +222,152 @@ def get_violations(video_id: int, db: Session = Depends(get_db)):
             })
 
     return {"video_id": video_id, "violations": violations}
+# ==========================================================
+# AI MODEL EXECUTION ENGINE
+# ==========================================================
+
+@router.get("/api/models")
+def get_available_models():
+    models = []
+
+    if MODELS_DIR.exists():
+        for file in MODELS_DIR.iterdir():
+            if file.suffix == ".pt":
+                models.append(file.name)
+
+    return {
+        "models": sorted(models)
+    }
+
+
+@router.get("/api/violations")
+def get_available_violations():
+    return {
+        "violations": [
+            "triple_riding",
+            "wrong_way",
+            "no_number_plate",
+            "overspeed"
+        ]
+    }
+
+
+@router.get("/api/default-mapping")
+def get_default_engine_mappings():
+
+    mapping_file = MODELS_DIR.parent / "default_mapping.json"
+
+    if mapping_file.exists():
+        try:
+            with open(mapping_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    return {
+        "triple_riding": {
+            "name": "Triple Riding",
+            "tasks": [
+                {
+                    "id": "vehicle_detection",
+                    "name": "Vehicle Detection",
+                    "type": "model",
+                    "default": "yolov8n.pt"
+                },
+                {
+                    "id": "person_detection",
+                    "name": "Person Detection",
+                    "type": "model",
+                    "default": "triple_riding.pt"
+                }
+            ]
+        },
+
+        "wrong_way": {
+            "name": "Wrong Way",
+            "tasks": [
+                {
+                    "id": "vehicle_detection",
+                    "name": "Vehicle Detection",
+                    "type": "model",
+                    "default": "yolov8n.pt"
+                },
+                {
+                    "id": "tracking",
+                    "name": "Tracking",
+                    "type": "execution_module",
+                    "default": "bytetrack",
+                    "display_name": "ByteTrack"
+                }
+            ]
+        },
+
+        "no_number_plate": {
+            "name": "No Number Plate",
+            "tasks": [
+                {
+                    "id": "plate_detection",
+                    "name": "Plate Detection",
+                    "type": "model",
+                    "default": "license_plate.pt"
+                },
+                {
+                    "id": "ocr",
+                    "name": "OCR",
+                    "type": "model",
+                    "default": "model (1).pt"
+                }
+            ]
+        },
+
+        "overspeed": {
+            "name": "Overspeeding",
+            "tasks": [
+                {
+                    "id": "vehicle_detection",
+                    "name": "Vehicle Detection",
+                    "type": "model",
+                    "default": "yolov8n.pt"
+                },
+                {
+                    "id": "tracking",
+                    "name": "Tracking",
+                    "type": "execution_module",
+                    "default": "bytetrack",
+                    "display_name": "ByteTrack"
+                }
+            ]
+        }
+    }
+
+
+@router.post("/api/custom-mapping")
+def save_custom_override_configuration(
+    payload: CustomMappingRequest
+):
+
+    mapping_file = MODELS_DIR.parent / "default_mapping.json"
+
+    if mapping_file.exists():
+        with open(mapping_file, "r", encoding="utf-8") as f:
+            current = json.load(f)
+    else:
+        current = get_default_engine_mappings()
+
+    if payload.violation not in current:
+        raise HTTPException(
+            status_code=404,
+            detail="Violation not found."
+        )
+
+    for task in current[payload.violation]["tasks"]:
+
+        if task["id"] in payload.overrides:
+            task["default"] = payload.overrides[task["id"]]
+
+    with open(mapping_file, "w", encoding="utf-8") as f:
+        json.dump(current, f, indent=2)
+
+    return {
+        "status": "success"
+    }
