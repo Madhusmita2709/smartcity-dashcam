@@ -23,7 +23,7 @@
         "id": "vehicle_detection",
         "name": "Vehicle Detection",
         "type": "model",
-        "default": "triple_riding.pt"
+        "default": "yolov8n.pt"
       },
       {
         "id": "tracking",

@@ -59,6 +59,7 @@ async def upload_videos(
     db: Session = Depends(get_db),
 ):
     configs = _parse_configs(config_json, config_json_list, len(files))
+    print(json.dumps(configs[0].model_dump(), indent=2))
     response_items: list[UploadResponseItem] = []
 
     for upload, config in zip(files, configs, strict=True):

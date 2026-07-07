@@ -5,36 +5,21 @@ from backend.app.services.storage import upload_file
 settings = get_settings()
 from backend.app.services.processors.plate_reader import PlateReader
 import cv2
-from scipy.fftpack import dst
 from ultralytics import YOLO
 import numpy as np
 import json
-import os
 
 class WrongWayDetector:
-    # Initializes detector, loads configuration, instantiates YOLO, and sets up Homography matrix for BEV.
+    # Initializes detector, calculates directory mappings, and delays YOLO instantiation for runtime configuration.
     def __init__(self):
         print("[WRONG WAY INIT]", flush=True)
-        self.model = YOLO("yolov8n.pt")
-        # Load config if available, otherwise use defaults
-        #self.config = self.load_config()
-        #self.model = YOLO(self.config.get("yolo_model", "yolov8n.pt"))
+        self.models_dir = Path(__file__).resolve().parent.parent / "models"
+        self.default_model = self.models_dir / "yolov8n.pt"
+        self.model = None
         self.plate_reader = PlateReader()
-        
-        # Load polygons from config
-        #self.polygons = {}
-        #for name, pts in self.config.get("polygons", {}).items():
-            #self.polygons[name] = np.array(pts, np.int32)
-            
-        # Homography setup for Bird's-Eye View (BEV)
-        #ipm_config = self.config.get("ipm", {})
-        #src = np.float32(ipm_config.get("src", [[920, 700], [1100, 700], [350, 1440], [900, 1440]]))
-        #dst = np.float32(ipm_config.get("dst", [[100, 0], [200, 0], [100, 1000], [200, 1000]]))
-        #self.H = cv2.getPerspectiveTransform(src, dst)
         
     # Loads configuration parameters from config.json with a hardcoded fallback config.
     def load_config(self, config_path):
-        #config_path = Path(__file__).parent / "config.json"
         if config_path.exists():
             try:
                 with open(config_path, "r") as f:
@@ -45,7 +30,6 @@ class WrongWayDetector:
         else:
             print("[CONFIG] config.json not found. Using defaults.", flush=True)
             
-        # Default fallback config
         return {
             "polygons": {
                 "SHOULDER": [[100, 1440], [850, 700], [920, 700], [350, 1440]],
@@ -63,9 +47,7 @@ class WrongWayDetector:
                 "start_msec": 0,
                 "end_msec": 34000
             },
-            "tracker": "botsort.yaml",
             "confidence_threshold": 0.15,
-            "yolo_model": "yolov8n.pt",
             "imgsz": 1280,
             "draw_lanes": False,
             "speed_window_size": 5
@@ -84,7 +66,7 @@ class WrongWayDetector:
                 return name
         return "UNKNOWN"
         
-    # Calculates the Intersection-over-Union (IoU) between two bounding boxes (used to propagate sticky wrong-way flags).
+    # Calculates the Intersection-over-Union (IoU) between two bounding boxes.
     def calculate_iou(self, box1, box2):
         x1_1, y1_1, x2_1, y2_1 = box1
         x1_2, y1_2, x2_2, y2_2 = box2
@@ -103,13 +85,13 @@ class WrongWayDetector:
         return inter_area / union_area if union_area > 0 else 0
         
     # Processes input video frame-by-frame: tracks vehicles, calculates ego-motion, computes vehicle speed, and flags wrong-way violators.
-    def run(self, input_path, output_dir, video_id):
+    def run(self, input_path, output_dir, video_id, vehicle_model="yolov8n.pt", tracker_module="bytetrack"):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         config_path = output_dir / "config.json"
-
         self.config = self.load_config(config_path)
+        
         # Load polygons from config
         self.polygons = {}
         for name, pts in self.config.get("polygons", {}).items():
@@ -117,13 +99,33 @@ class WrongWayDetector:
 
         # Homography setup for Bird's-Eye View (BEV)
         ipm_config = self.config.get("ipm", {})
-
-        src = np.float32(ipm_config.get("src",[[920, 700], [1100, 700], [350, 1440], [900, 1440]]))
-
-        dst = np.float32(ipm_config.get("dst",[[100, 0], [200, 0], [100, 1000], [200, 1000]]))
-
+        src = np.float32(ipm_config.get("src", [[920, 700], [1100, 700], [350, 1440], [900, 1440]]))
+        dst = np.float32(ipm_config.get("dst", [[100, 0], [200, 0], [100, 1000], [200, 1000]]))
         self.H = cv2.getPerspectiveTransform(src, dst)
 
+        # Dynamic model validation lookup with clean fallback notification
+        target_model = Path(vehicle_model)
+        if not target_model.is_absolute() and not target_model.exists():
+            local = self.models_dir / vehicle_model
+            if local.exists():
+                target_model = local
+            else:
+                print(f"[WRONG WAY] Custom model layout asset '{vehicle_model}' was not found locally. Falling back to core engine default: '{self.default_model.name}'", flush=True)
+                target_model = self.default_model
+
+        target_model_str = str(target_model)
+        print(f"[WRONG WAY] Initializing runtime tracking engine model: {target_model_str}", flush=True)
+        
+        try:
+            self.model = YOLO(target_model_str)
+        except Exception as e:
+            raise RuntimeError(f"Unable to load Wrong Way processing model {target_model}: {e}")
+
+        tracker = tracker_module
+        if not tracker.endswith(".yaml"):
+            tracker += ".yaml"
+
+        print(f"[WRONG WAY] Active tracking engine module configured: {tracker}", flush=True)
         print(f"[CONFIG] Loaded: {config_path}", flush=True)
         print("[POLYGONS]", self.polygons.keys(), flush=True)
         
@@ -135,7 +137,6 @@ class WrongWayDetector:
         time_range = self.config.get("time_range", {})
         start_msec = time_range.get("start_msec", 0)
         end_msec = time_range.get("end_msec", None)
-        #end_msec = None
         
         if start_msec > 0:
             cap.set(cv2.CAP_PROP_POS_MSEC, start_msec)
@@ -160,7 +161,7 @@ class WrongWayDetector:
         # State tracking structures
         track_history = {}
         wrong_way_frames = {}
-        flagged_wrong_way = set() # Sticky wrong-way set to keep boxes solid red without flickering
+        flagged_wrong_way = set() 
         saved_violations = set()
         violations_log = []
         
@@ -170,7 +171,7 @@ class WrongWayDetector:
         
         prev_gray = None
         prev_pts = None
-        current_v_ego = 300.0 # initial fallback speed in BEV pixels/s
+        current_v_ego = 300.0 
         
         show_gui = False
         try:
@@ -197,10 +198,8 @@ class WrongWayDetector:
                 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            # 1. Detect and track vehicles using YOLO tracker (uses BoT-SORT to prevent ID switching).
             imgsz = self.config.get("imgsz", 1280)
             conf = self.config.get("confidence_threshold", 0.15)
-            tracker = self.config.get("tracker", "botsort.yaml")
             
             results = self.model.track(frame, persist=True, tracker=tracker, conf=conf, imgsz=imgsz, verbose=False)
             
@@ -235,9 +234,8 @@ class WrongWayDetector:
                         "bottom_center": (cx, y2)
                     })
                 
-            # 2. Dynamic Ego-Motion Estimation: Calculates forward camera speed using optical flow of static features on the shoulder (excluding moving vehicle boxes).
+            # Ego-Motion Estimation
             if prev_gray is not None:
-                # Create mask for shoulder region, blacking out moving vehicles
                 shoulder_mask = np.zeros_like(prev_gray)
                 if "SHOULDER" in self.polygons:
                     cv2.fillPoly(shoulder_mask, [self.polygons["SHOULDER"]], 255)
@@ -268,7 +266,7 @@ class WrongWayDetector:
                 else:
                     prev_pts = None
             
-            # 3. Track Propagation: Propagates sticky "wrong-way" flags to overlapping track IDs (handles case when vehicles/motorcycles get split into new IDs).
+            # Track Propagation
             monitored_regions = self.config.get("monitored_regions", ["LANE_1", "LANE_2"])
             speed_thresholds = self.config.get("speed_thresholds", {})
             wrong_way_min_speed = speed_thresholds.get("wrong_way_min_speed", 30.0)
@@ -288,7 +286,7 @@ class WrongWayDetector:
                         print(f"[TRACK PROPAGATION] Propagated wrong-way status from ID:{other_tid} to ID:{tid} due to IoU={iou:.2f}", flush=True)
                         break
             
-            # 4. Track processing and velocity estimation: Computes absolute speed relative to the road using a rolling-window of the last 5 frames.
+            # Track processing and velocity estimation
             for veh in frame_vehicles:
                 tid = veh["id"]
                 class_name = veh["class"]
@@ -341,13 +339,11 @@ class WrongWayDetector:
                     
                     dt = t_end - t_start
                     if dt > 0:
-
                         movement_pixels = np.sqrt(
                                 (img_end[0] - img_start[0]) ** 2 +
                                 (img_end[1] - img_start[1]) ** 2
                         )
 
-                        # Ignore stationary objects
                         if movement_pixels < 60:
                             continue
 
@@ -358,16 +354,12 @@ class WrongWayDetector:
                         if abs(v_abs) < 30:
                             continue
                         print(
-                            f"[TRACK {tid}] "
-                            f"{class_name} "
-                            f"REGION={region} "
-                            f"VABS={v_abs:.1f} "
-                            f"DY={dy_speed:.1f} "
-                            f"MOVE={movement_pixels:.1f}",
+                            f"[TRACK {tid}] {class_name} REGION={region} VABS={v_abs:.1f} DY={dy_speed:.1f} MOVE={movement_pixels:.1f}",
                             flush=True
                         )
                         if v_abs < -wrong_way_min_speed and dy_speed > 35.0:
                             is_wrong_way = True
+                            
                 if len(track_history[tid]["img_positions"]) < 8:
                     continue            
                 if region in monitored_regions and is_wrong_way:
@@ -376,7 +368,7 @@ class WrongWayDetector:
                     if tid not in flagged_wrong_way:
                         wrong_way_frames[tid] = max(0, wrong_way_frames.get(tid, 0) - 1)
                     
-                # 5. Violation flagging: Marks vehicle as a wrong-way violator if wrong-way counter exceeds threshold or if previously flagged.
+                # Violation flagging
                 if wrong_way_frames.get(tid, 0) >= 3 or tid in flagged_wrong_way:
                     flagged_wrong_way.add(tid)
                     
@@ -392,7 +384,6 @@ class WrongWayDetector:
                     )
                     
                     if tid not in saved_violations:
-
                         timestamp = current_time / 1000.0
                         plate_number = "UNKNOWN"
 
@@ -409,27 +400,29 @@ class WrongWayDetector:
                                 plate_number = candidate
                             print(f"[OCR] Plate = {plate_number}", flush=True)
 
-
                         except Exception as e:
                             print(f"[OCR ERROR] {e}", flush=True)
 
-                        image_name = (f"{video_id}_{int(timestamp)}s_"f"wrong_way_{plate_number}_{tid}.jpg")
-
+                        image_name = f"{video_id}_{int(timestamp)}s_wrong_way_{plate_number}_{tid}.jpg"
                         violation_path = output_dir / image_name
-
                         cv2.imwrite(str(violation_path), frame)
 
-                        object_key = (f"videos/{video_id}/violations/{image_name}")
+                        object_key = f"videos/{video_id}/violations/{image_name}"
+                        uploaded = upload_file(settings.minio_images_bucket, object_key, violation_path, "image/jpeg")
 
-                        uploaded = upload_file(settings.minio_images_bucket,object_key,violation_path,"image/jpeg")
-
-                        violations_log.append({"track_id": tid,"class": class_name,"plate_number": plate_number,"time_sec": timestamp,"violation_type": "wrong_way","image_url": uploaded.object_url})
+                        violations_log.append({
+                            "track_id": tid,
+                            "class": class_name,
+                            "plate_number": plate_number,
+                            "timestamp_seconds": timestamp,
+                            "violation_type": "wrong_way",
+                            "confidence": confidence,
+                            "image_url": uploaded.object_url
+                        })
 
                         saved_violations.add(tid)
-
                         violation_path.unlink(missing_ok=True)
-
-                        print(f"[MINIO] Wrong-way uploaded: "f"{uploaded.object_url}",flush=True)
+                        print(f"[MINIO] Wrong-way uploaded: {uploaded.object_url}", flush=True)
                 else:
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     cv2.putText(
@@ -442,7 +435,7 @@ class WrongWayDetector:
                         2
                     )
             
-            # 6. Visualization overlay: Draws the configured lane polygons on the frame if configured in config.json.
+            # Visualization overlay
             if self.config.get("draw_lanes", False):
                 for name, pts in self.polygons.items():
                     color = (0, 255, 255)
@@ -480,6 +473,4 @@ if __name__ == "__main__":
     detector = WrongWayDetector()
     video_path = r"c:\Users\DELL\Desktop\Code More\wrong-way-detection\wrong_way_video2.mp4"
     output_dir = r"c:\Users\DELL\Desktop\Code More\wrong-way-detection\output2"
-    
-    # Run the detector
     detector.run(video_path, output_dir, "wrong_way_video")

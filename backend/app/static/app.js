@@ -305,7 +305,7 @@ function buildConfig() {
     const cb = document.getElementById(`v_${key}`);
     if (cb && cb.checked) activeViolations.push(key);
   });
-
+  console.log(activeViolations);
   return {
     audio_removal: elements.audioRemoval ? elements.audioRemoval.checked : true,
     face_blur: {
@@ -322,6 +322,10 @@ function buildConfig() {
       mode,
       latitude: mode === "manual" && elements.latitude ? Number(elements.latitude.value) : null,
       longitude: mode === "manual" && elements.longitude ? Number(elements.longitude.value) : null,
+    },
+    violation_detection: {
+    taskkillenabled: activeViolations.length > 0,
+    list_violations: activeViolations
     },
     violation_pipeline: {
       active_workflows: activeViolations,
