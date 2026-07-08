@@ -48,8 +48,7 @@ const elements = {
   defaultMappingTableBody: document.getElementById("defaultMappingTableBody"),
   customMappingWrapper: document.getElementById("customMappingWrapper"),
   defaultMappingWrapper: document.getElementById("defaultMappingWrapper"),
-  mappingViolationSelector: document.getElementById("mappingViolationSelector"),
-  dynamicTasksContainer: document.getElementById("dynamicTasksContainer"),
+  customMappingAccordion:document.getElementById("customMappingAccordion"),
   minioLiveRegistryList: document.getElementById("minioLiveRegistryList"),
   violationsChecklistGrid: document.getElementById("violationsChecklistGrid"),
   tabBtnDefaultConfig: document.getElementById("tabBtnDefaultConfig"),
@@ -80,19 +79,8 @@ async function initializePlatformArchitecture() {
 
     renderMinioObjectRegistry();
     renderDefaultMappingMatrix();
-    populateViolationSelectors();
     renderDataDrivenChecklist();
-
-    if (elements.mappingViolationSelector) {
-      elements.mappingViolationSelector.addEventListener(
-        "change",
-        (e) => handleViolationWorkflowChange(e.target.value)
-      );
-
-      handleViolationWorkflowChange(
-        elements.mappingViolationSelector.value
-      );
-    }
+    renderCustomMappingAccordion();
 
   } catch (err) {
     console.error(err);
@@ -153,18 +141,7 @@ function renderDefaultMappingMatrix() {
     });
   });
 }
-// Populates target workflows strictly using registered backend properties
-function populateViolationSelectors() {
-  if (!elements.mappingViolationSelector) return;
-  elements.mappingViolationSelector.innerHTML = "";
 
-  Object.entries(state.pipelineBlueprints).forEach(([key, meta]) => {
-    const opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = meta.name;
-    elements.mappingViolationSelector.appendChild(opt);
-  });
-}
 
 // Dynamically shapes selection card grids depending completely on backend items
 function renderDataDrivenChecklist() {
@@ -208,85 +185,142 @@ window.switchMappingMode = function(modeKey) {
   renderConfigPreview();
 };
 
-window.handleViolationWorkflowChange = function(violationId) {
-    if (!elements.dynamicTasksContainer) return;
-    elements.dynamicTasksContainer.innerHTML = "";
+function renderCustomMappingAccordion() {
 
-    const meta = state.pipelineBlueprints[violationId];
-    if (!meta) return;
+    if (!elements.customMappingAccordion) return;
 
-    meta.tasks.forEach(task => {
-        const wrapper = document.createElement("div");
-        wrapper.className = "field";
+    elements.customMappingAccordion.innerHTML = "";
 
-        const label = document.createElement("span");
-        label.textContent = task.name;
+    Object.entries(state.pipelineBlueprints).forEach(([violationId, meta]) => {
 
-        const select = document.createElement("select");
-        select.className = "w-100";
-        select.dataset.task = task.id;
+        const details = document.createElement("details");
+        details.open = true;
 
-        if (task.type === "execution_module") {
-            const option = document.createElement("option");
-            option.value = task.default;
-            option.textContent = task.default.toLowerCase() === "bytetrack" ? "ByteTrack Tracker" : `${task.default} Module`;
-            option.selected = true;
-            select.appendChild(option);
-        } else {
-            state.availableModels.forEach(model => {
+        const summary = document.createElement("summary");
+        summary.innerHTML = `<strong>${meta.name}</strong>`;
+
+        details.appendChild(summary);
+
+        meta.tasks.forEach(task => {
+
+            const wrapper = document.createElement("div");
+            wrapper.className = "field";
+            wrapper.style.marginTop = "10px";
+
+            const label = document.createElement("span");
+            label.textContent = task.name;
+
+            const select = document.createElement("select");
+
+            select.dataset.violation = violationId;
+            select.dataset.task = task.id;
+
+            if (task.type === "execution_module") {
+
                 const option = document.createElement("option");
-                option.value = model;
-                option.textContent = model;
-                if (model === task.default) option.selected = true;
+
+                option.value = task.default;
+                option.textContent = task.default;
+
                 select.appendChild(option);
-            });
-        }
 
-        wrapper.appendChild(label);
-        wrapper.appendChild(select);
-        elements.dynamicTasksContainer.appendChild(wrapper);
-    });
-}
+            } else {
 
-window.saveCustomMappingConfiguration = async function() {
-    const violationId = elements.mappingViolationSelector.value;
-    const overrides = {};
+                state.availableModels.forEach(model => {
 
-    elements.dynamicTasksContainer
-        .querySelectorAll("select")
-        .forEach(select => {
-            overrides[select.dataset.task] = select.value;
+                    const option = document.createElement("option");
+
+                    option.value = model;
+                    option.textContent = model;
+
+                    const saved = state.customOverrides?.[violationId]?.[task.id] ?? task.default;
+
+                    if (model === saved) {
+                        option.selected = true;}
+
+                    select.appendChild(option);
+
+                });
+
+            }
+
+            wrapper.appendChild(label);
+            wrapper.appendChild(select);
+
+            details.appendChild(wrapper);
+
         });
 
-    const payload = {
-        violation: violationId,
-        overrides: overrides
-    };
+        elements.customMappingAccordion.appendChild(details);
+
+    });
+
+}
+
+window.saveCustomMappingConfiguration = async function () {
 
     try {
-        const response = await fetch("/api/custom-mapping", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify(payload)
+
+        const grouped = {};
+
+        document.querySelectorAll(
+            "#customMappingAccordion select"
+        ).forEach(select => {
+
+            const violation = select.dataset.violation;
+            const task = select.dataset.task;
+
+            if (!grouped[violation]) {
+                grouped[violation] = {};
+            }
+
+            grouped[violation][task] = select.value;
+
         });
 
-        if (!response.ok) throw new Error();
+        // Send one request per violation
+        for (const violation in grouped) {
 
-        const updated = await fetch("/api/default-mapping");
-        state.pipelineBlueprints = await updated.json();
+            const payload = {
+                violation: violation,
+                overrides: grouped[violation]
+            };
 
-        renderDefaultMappingMatrix();
+            const response = await fetch("/api/custom-mapping", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(
+                    `Failed to save ${violation}`
+                );
+            }
+        }
+        state.customOverrides = grouped;
+        console.log("AFTER SAVE:", state.customOverrides);
+
+        await initializePlatformArchitecture();
+
         renderConfigPreview();
-        handleViolationWorkflowChange(violationId);
 
-        elements.uploadStatus.textContent = "✓ Configuration saved successfully.";
-    } catch(err) {
-        console.error(err);
-        elements.uploadStatus.textContent = "❌ Unable to save configuration.";
+        elements.uploadStatus.textContent =
+            "✓ All custom mappings saved successfully.";
+
     }
-}
+    catch (err) {
+
+        console.error(err);
+
+        elements.uploadStatus.textContent =
+            "❌ Unable to save custom mappings.";
+
+    }
+
+};
 
 /* ==========================================================================
    Core Processing Operations & Form Utilities
@@ -298,6 +332,7 @@ function getGeoMode() {
 }
 
 function buildConfig() {
+  console.log("CUSTOM OVERRIDES =", state.customOverrides);
   const mode = getGeoMode();
   const activeViolations = [];
   
@@ -306,6 +341,7 @@ function buildConfig() {
     if (cb && cb.checked) activeViolations.push(key);
   });
   console.log(activeViolations);
+  console.log("BUILDCONFIG:", state.customOverrides);
   return {
     audio_removal: elements.audioRemoval ? elements.audioRemoval.checked : true,
     face_blur: {

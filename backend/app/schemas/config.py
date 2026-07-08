@@ -63,6 +63,10 @@ class ViolationDetectionConfig(BaseModel):
     taskkillenabled:bool = False
     list_violations: list[str] = Field(default_factory=lambda:["triple_riding"])
 
+class ViolationPipelineConfig(BaseModel):
+    active_workflows: list[str] = Field(default_factory=list)
+    orchestration_strategy: Literal["default", "custom"] = "default"
+    custom_overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 class ProcessingConfig(BaseModel):
     audio_removal: bool = True
@@ -72,6 +76,8 @@ class ProcessingConfig(BaseModel):
     object_detection: ObjectDetectionConfig = Field(default_factory=ObjectDetectionConfig)
     geo_tagging: GeoTaggingConfig = Field(default_factory=GeoTaggingConfig)
     violation_detection: ViolationDetectionConfig = Field(default_factory=ViolationDetectionConfig)
+    violation_pipeline: ViolationPipelineConfig = Field(default_factory=ViolationPipelineConfig)
+
 # ==========================================================
 # AI Model Configuration Schemas
 # ==========================================================

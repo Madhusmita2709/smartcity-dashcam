@@ -117,6 +117,7 @@ class WrongWayDetector:
         print(f"[WRONG WAY] Initializing runtime tracking engine model: {target_model_str}", flush=True)
         
         try:
+            print(f"######## USING MODEL ######## {target_model_str}", flush=True)
             self.model = YOLO(target_model_str)
         except Exception as e:
             raise RuntimeError(f"Unable to load Wrong Way processing model {target_model}: {e}")

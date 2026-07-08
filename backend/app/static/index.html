@@ -438,15 +438,18 @@
                   <i class="fa-solid fa-circle-nodes"></i> Remap execution task targets dynamically using active models found inside your local directory.
                 </div>
                 
-                <div class="field" style="margin-top: 10px;">
-                  <span>Target Violation Workflow</span>
-                  <select id="mappingViolationSelector"></select>
+                <div
+                  id="customMappingAccordion"
+                  class="dynamic-tasks-form-box">
                 </div>
 
-                <div id="dynamicTasksContainer" class="dynamic-tasks-form-box"></div>
+                <button
+                  type="button"
+                  class="btn-register-action"
+                  onclick="saveCustomMappingConfiguration()">
 
-                <button type="button" class="btn-register-action" onclick="saveCustomMappingConfiguration()">
-                  Save Configuration Override
+                  Save Custom Configuration
+
                 </button>
               </div>
 

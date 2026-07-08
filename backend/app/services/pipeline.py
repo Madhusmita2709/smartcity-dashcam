@@ -15,6 +15,7 @@ from backend.app.models.video import (
     ViolationImage
 )
 
+from backend.app.schemas import config
 from backend.app.schemas.config import ProcessingConfig
 from backend.app.services.processors.audio import AudioRemovalProcessor
 from backend.app.services.processors.face_blur import FaceBlurProcessor
@@ -37,6 +38,8 @@ from backend.app.services.storage import (
 
 # Points directly to backend/app/services where default_mapping.json lives
 ENGINE_CONFIG_DIR = Path(__file__).resolve().parent
+DEFAULT_MAPPING_FILE = ENGINE_CONFIG_DIR / "default_mapping.json"
+CUSTOM_MAPPING_FILE = ENGINE_CONFIG_DIR / "custom_mapping.json"
 
 class VideoProcessingPipeline:
 
@@ -51,12 +54,12 @@ class VideoProcessingPipeline:
         self.object_detector = ObjectDetectionProcessor()
         self.geotagger = GeoTaggingProcessor()
 
-    def _get_active_model_mapping(self) -> dict:
+    def _get_active_model_mapping(self, use_custom: bool = False) -> dict:
         """
         Reads from default_mapping.json to construct a flat dictionary lookup table
         of current model overrides for runtime module consumption.
         """
-        mapping_file = ENGINE_CONFIG_DIR / "default_mapping.json"
+        mapping_file = CUSTOM_MAPPING_FILE if use_custom else DEFAULT_MAPPING_FILE
         flat_overrides = {}
         
         if mapping_file.exists():
@@ -87,7 +90,14 @@ class VideoProcessingPipeline:
     ) -> dict:
 
         # Ingest active model blueprints maps directly from storage
-        model_mappings = self._get_active_model_mapping()
+        use_custom = False
+
+        if hasattr(config, "violation_pipeline"):
+            use_custom = (getattr(config.violation_pipeline, "orchestration_strategy", "default") == "custom")
+
+        print("ORCHESTRATION =", config.violation_pipeline.orchestration_strategy)
+        print("USE_CUSTOM =", use_custom)
+        model_mappings = self._get_active_model_mapping(use_custom)
         print(f"[Pipeline] Active Runtime Model Blueprint Map: {json.dumps(model_mappings)}")
 
         print(
@@ -156,6 +166,7 @@ class VideoProcessingPipeline:
             # WRONG WAY
             if (config.violation_detection.taskkillenabled and "wrong_way" in config.violation_detection.list_violations):
                 models = model_mappings.get("wrong_way", {})
+                print(f"[PIPELINE] Wrong Way mappings = {models}", flush=True)
                 wrong_way_dir = work_dir / "wrong_way"
                 wrong_way_dir.mkdir(parents=True, exist_ok=True)
 
@@ -165,6 +176,9 @@ class VideoProcessingPipeline:
 
                 sig = inspect.signature(self.wrong_way.run)
                 if "vehicle_model" in sig.parameters and "tracker_module" in sig.parameters:
+                    print("USE_CUSTOM =", use_custom)
+                    print("MODEL_MAPPINGS =", json.dumps(model_mappings, indent=2))
+                    print("WRONG WAY MODELS =", models)
                     current_video, stage_logs["wrong_way"] = self.wrong_way.run(
                         current_video,
                         wrong_way_dir,

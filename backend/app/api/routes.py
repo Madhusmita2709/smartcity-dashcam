@@ -1,6 +1,8 @@
 from pathlib import Path
 import json
 ENGINE_CONFIG_DIR = Path(__file__).resolve().parents[1] / "services"
+DEFAULT_MAPPING_FILE = ENGINE_CONFIG_DIR / "default_mapping.json"
+CUSTOM_MAPPING_FILE = ENGINE_CONFIG_DIR / "custom_mapping.json"
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, Body
 from pydantic import ValidationError
@@ -255,7 +257,7 @@ def get_available_violations():
 @router.get("/api/default-mapping")
 def get_default_engine_mappings():
 
-    mapping_file = ENGINE_CONFIG_DIR / "default_mapping.json"
+    mapping_file = DEFAULT_MAPPING_FILE
 
     if mapping_file.exists():
         try:
@@ -339,6 +341,14 @@ def get_default_engine_mappings():
             ]
         }
     }
+@router.get("/api/custom-mapping")
+def get_custom_engine_mappings():
+
+    if CUSTOM_MAPPING_FILE.exists():
+        with open(CUSTOM_MAPPING_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    return get_default_engine_mappings()
 
 
 @router.post("/api/custom-mapping")
@@ -346,7 +356,7 @@ def save_custom_override_configuration(
     payload: CustomMappingRequest
 ):
 
-    mapping_file = ENGINE_CONFIG_DIR / "default_mapping.json"
+    mapping_file = CUSTOM_MAPPING_FILE
 
     if mapping_file.exists():
         with open(mapping_file, "r", encoding="utf-8") as f:
