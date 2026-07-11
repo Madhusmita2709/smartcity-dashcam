@@ -6,7 +6,7 @@
         "id": "vehicle_detection",
         "name": "Vehicle Detection",
         "type": "model",
-        "default": "yolov8n.pt"
+        "default": "license_plate.pt"
       },
       {
         "id": "person_detection",
@@ -23,7 +23,7 @@
         "id": "vehicle_detection",
         "name": "Vehicle Detection",
         "type": "model",
-        "default": "yolov8n.pt"
+        "default": "triple_riding.pt"
       },
       {
         "id": "tracking",
@@ -58,7 +58,7 @@
         "id": "vehicle_detection",
         "name": "Vehicle Detection",
         "type": "model",
-        "default": "triple_riding.pt"
+        "default": "yolov8n.pt"
       },
       {
         "id": "tracking",

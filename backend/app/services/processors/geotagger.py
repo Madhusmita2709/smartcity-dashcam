@@ -1,56 +1,46 @@
-import json
-import subprocess
 from pathlib import Path
-
 from backend.app.schemas.config import GeoTaggingConfig
 
 
 class GeoTaggingProcessor:
-    def resolve(self, source: Path, config: GeoTaggingConfig) -> tuple[dict | None, dict]:
+    def resolve(self,source: Path,config: GeoTaggingConfig,ocr_gps_timeline: list | None = None,) -> tuple[dict | None, dict]:
         if config.mode == "manual":
             location = {"latitude": config.latitude, "longitude": config.longitude}
             return location, {"status": "completed", "mode": "manual", **location}
+        # OCR GPS timeline has highest priority for dashboard routing
+        if ocr_gps_timeline:
+            base_coords = {
+                "latitude": ocr_gps_timeline[0]["latitude"],
+                "longitude": ocr_gps_timeline[0]["longitude"],
+            }
 
-        command = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(source)]
-        try:
-            result = subprocess.run(command, check=True, capture_output=True, text=True)
-            payload = json.loads(result.stdout or "{}")
-            tags = payload.get("format", {}).get("tags", {})
-            coords = self._parse_metadata_coordinates(tags)
-            if coords:
-                return coords, {"status": "completed", "mode": "metadata", **coords}
-        except (FileNotFoundError, subprocess.CalledProcessError, json.JSONDecodeError):
-            pass
+            return base_coords, {
+                "status": "completed",
+                "mode": "ocr_timeline",
+                "route": ocr_gps_timeline,
+                **base_coords,
+            }
 
         return None, {
             "status": "skipped",
-            "mode": "metadata",
+            "mode": "ocr_timeline",
             "message": "Metadata GPS not found; detections will be stored without coordinates.",
         }
+    
+    def get_coordinate_for_timestamp(self,timestamp_seconds: float,gps_timeline: list,) -> dict | None:
+        """
+        Return the nearest OCR GPS coordinate for a given timestamp.
+        """
+        if not gps_timeline:
+            return None
 
-    def _parse_metadata_coordinates(self, tags: dict) -> dict | None:
-        for key in ("location", "com.apple.quicktime.location.ISO6709", "GPSCoordinates"):
-            value = tags.get(key)
-            if not value:
-                continue
+        best_match = min(
+            gps_timeline,
+            key=lambda x: abs(
+                x.get("timestamp_seconds", x.get("timestamp", 0.0)) - timestamp_seconds),
+        )
 
-            if key == "GPSCoordinates" and "," in value:
-                lat, lon = value.split(",", maxsplit=1)
-                try:
-                    return {"latitude": float(lat), "longitude": float(lon)}
-                except ValueError:
-                    continue
-
-            cleaned = value.strip().replace("/", "")
-            if cleaned.startswith(("+", "-")) and len(cleaned) > 8:
-                midpoint = max(cleaned.rfind("+", 1), cleaned.rfind("-", 1))
-                if midpoint > 0:
-                    try:
-                        return {
-                            "latitude": float(cleaned[:midpoint]),
-                            "longitude": float(cleaned[midpoint:]),
-                        }
-                    except ValueError:
-                        continue
-
-        return None
+        return {
+            "latitude": best_match.get("latitude"),
+            "longitude": best_match.get("longitude"),
+        }

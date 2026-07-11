@@ -100,7 +100,7 @@
         justify-content: space-between;
       }
 
-      .hero h1, .panel h2, .config-section h3 {
+      .hero h1, .panel h2, .config-section h3, .filter-block-title {
         font-family: Georgia, "Times New Roman", serif;
         letter-spacing: -0.02em;
         margin: 0 0 8px 0;
@@ -125,9 +125,10 @@
       .config-section { padding: 14px; border: 1px solid rgba(67, 46, 20, 0.08); border-radius: 18px; background: rgba(255, 255, 255, 0.45); }
       .config-section .section-head { margin-bottom: 8px; }
       
-      .field, .checkbox-row, .radio-group, .two-column, .inline-row { display: grid; gap: 6px; }
-      .field span, .checkbox-row span, .config-section legend, .summary, #uploadStatus { color: var(--muted); font-size: 0.88rem; font-weight: 500; }
+      .field, .checkbox-row, .radio-group, .two-column, .three-column, .inline-row { display: grid; gap: 6px; }
+      .field span, .checkbox-row span, .config-section legend, .summary, #uploadStatus, .filter-block-label { color: var(--muted); font-size: 0.88rem; font-weight: 500; }
       .two-column { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .three-column { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
       .inline-row { grid-template-columns: 1fr auto; align-items: end; }
 
       input[type="text"], input[type="number"], select {
@@ -241,8 +242,10 @@
       .hidden { display: none !important; }
 
       #map { height: 480px; width: 100%; border-radius: 18px; border: 1px solid var(--panel-border); position: relative; z-index: 1; }
-      .filter-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-      .custom-registration-alert { background: rgba(141, 79, 24, 0.05); border: 1px dashed rgba(141, 79, 24, 0.2); border-radius: 10px; padding: 8px 12px; font-size: 0.76rem; color: var(--muted); line-height: 1.4; }
+      
+      /* Historical Route Filters Workspace Alignment */
+      .filter-dashboard-layout { display: flex; flex-direction: column; gap: 16px; padding-top: 10px; }
+      .filter-field-block { display: flex; flex-direction: column; gap: 6px; }
     </style>
   </head>
   <body>
@@ -380,8 +383,7 @@
                     <th>Action</th>
                   </tr>
                 </thead>
-                <tbody id="jobListTableBody">
-                  </tbody>
+                <tbody id="jobListTableBody"></tbody>
               </table>
             </div>
             <div id="jobList" class="hidden"></div>
@@ -389,7 +391,6 @@
         </div>
 
         <div class="column-right-group">
-          
           <section class="panel engine-panel">
             <div class="panel-head">
               <h2>AI Models & Execution Engine</h2>
@@ -401,7 +402,6 @@
             </div>
 
             <div class="panel-inner-tab-body">
-              
               <div id="defaultMappingWrapper" class="mapping-context-block">
                 <div class="table-container">
                   <table class="dashboard-table mapping-table">
@@ -412,8 +412,7 @@
                         <th>Assigned Model</th>
                       </tr>
                     </thead>
-                    <tbody id="defaultMappingTableBody">
-                      </tbody>
+                    <tbody id="defaultMappingTableBody"></tbody>
                   </table>
                 </div>
               </div>
@@ -422,22 +421,11 @@
                 <div class="custom-registration-alert">
                   <i class="fa-solid fa-circle-nodes"></i> Remap execution task targets dynamically using active models found inside your local directory.
                 </div>
-                
-                <div
-                  id="customMappingAccordion"
-                  class="dynamic-tasks-form-box">
-                </div>
-
-                <button
-                  type="button"
-                  class="btn-register-action"
-                  onclick="saveCustomMappingConfiguration()">
-
+                <div id="customMappingAccordion" class="dynamic-tasks-form-box"></div>
+                <button type="button" class="btn-register-action" onclick="saveCustomMappingConfiguration()">
                   Save Custom Configuration
-
                 </button>
               </div>
-
             </div>
           </section>
 
@@ -447,17 +435,17 @@
             </div>
             <div class="config-section object-storage-wrapper">
               <div class="minio-bucket-group">
-                <div class="minio-file-list" id="minioLiveRegistryList"></div>
+                <div class="minio-file-list" id="availableModels"></div>
               </div>
             </div>
           </section>
 
           <section class="panel results-panel">
             <div class="panel-head">
-              <h2>Violations Checklist</h2>
+              <h2>Violation Checklist</h2>
             </div>
             <div class="config-section" style="padding: 14px !important;">
-              <div class="checklist-badge-matrix" id="violationsChecklistGrid"></div>
+              <div class="checklist-badge-matrix" id="violationChecklist"></div>
             </div>
             <div id="violationList" class="hidden"></div>
           </section>
@@ -466,28 +454,68 @@
       </section>
 
       <section class="visualization-grid">
-        <div class="panel">
+        <div class="panel" style="min-width: 0;">
           <div class="panel-head">
             <h2>Map Visualization</h2>
           </div>
           <div id="map"></div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head filter-head">
-            <h2>Heatmap Filters</h2>
-            <div class="filter-row">
-              <select id="heatmapObjectFilter">
-                <option value="">All objects</option>
-                <option value="person">person</option>
-                <option value="car">car</option>
-                <option value="bike">bike</option>
+        <div class="panel" style="min-width: 0;">
+          <div class="panel-head">
+            <h2>Historical Route Filters</h2>
+          </div>
+          
+          <div class="filter-dashboard-layout">
+            <select id="dashboardDateSelect" class="hidden"><option value=""></option></select>
+
+            <div class="filter-field-block">
+              <span class="filter-block-label">Select Processing Date:</span>
+              <div class="three-column">
+                <select id="archiveDayFilter">
+                  <option value="06">06</option>
+                  <option value="05">05</option>
+                  <option value="04">04</option>
+                  <option value="03">03</option>
+                  <option value="02">02</option>
+                  <option value="01">01</option>
+                </select>
+                <select id="archiveMonthFilter">
+                  <option value="07">July</option>
+                  <option value="06">June</option>
+                  <option value="05">May</option>
+                  <option value="04">April</option>
+                  <option value="03">March</option>
+                  <option value="02">February</option>
+                  <option value="01">January</option>
+                </select>
+                <select id="archiveYearFilter">
+                  <option value="2026">2026</option>
+                  <option value="2025">2025</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="filter-field-block">
+              <label for="dashboardVideoSelect" class="filter-block-label">Select Target Video Route:</label>
+              <select id="dashboardVideoSelect">
+                <option value="">Select an analytical trace date...</option>
               </select>
-              <input id="heatmapStart" type="number" min="0" value="0" placeholder="Start s" />
-              <input id="heatmapEnd" type="number" min="0" value="3600" placeholder="End s" />
+            </div>
+
+            <div class="filter-field-block">
+              <label for="dashboardViolationFilter" class="filter-block-label">Filter Map Context Markers / Violations:</label>
+              <select id="dashboardViolationFilter">
+                <option value="All Violations">All Violations</option>
+                <option value="no_helmet">No Helmet Only</option>
+                <option value="phone_usage">Phone Usage Only</option>
+                <option value="triple_riding">Triple Riding Only</option>
+                <option value="wrong_way">Wrong Way Only</option>
+              </select>
             </div>
           </div>
-          <div id="heatmapSummary" class="summary"></div>
+
+          <div id="heatmapSummary" class="summary" style="margin-top: 20px;"></div>
           <div id="detectionList" class="detection-list"></div>
         </div>
       </section>
@@ -495,7 +523,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
-    
     <script src="/static/app.js"></script>
   </body>
 </html>

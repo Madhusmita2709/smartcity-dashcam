@@ -1,4 +1,7 @@
 from pathlib import Path
+from sqlalchemy import func
+from datetime import datetime, date
+from backend.app.models.video import VideoRoute
 import json
 ENGINE_CONFIG_DIR = Path(__file__).resolve().parents[1] / "services"
 DEFAULT_MAPPING_FILE = ENGINE_CONFIG_DIR / "default_mapping.json"
@@ -10,7 +13,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from backend.app.db.database import get_db
-from backend.app.models.video import Detection, FrameImage, Video
+from backend.app.models.video import (Detection, FrameImage, Video, ProcessingRun, VideoRoute, ProjectViolation, VideoRegistry,)
 from backend.app.schemas.api import (
     DetectionResponse,
     FrameImageResponse,
@@ -381,3 +384,38 @@ def save_custom_override_configuration(
     return {
         "status": "success"
     }
+
+# ==========================================================================
+# DASHBOARD FILTER METADATA
+# ==========================================================================
+
+@router.get("/api/filter-metadata")
+def get_filter_metadata(db: Session = Depends(get_db)):
+    latest_date = (
+        db.query(func.date(VideoRoute.created_at))
+        .order_by(VideoRoute.created_at.desc())
+        .first()
+    )
+
+    if latest_date:
+        return {
+            "default_date": str(latest_date[0])
+        }
+
+    return {
+        "default_date": None
+    }
+
+@router.get("/api/videos-by-date/{date_str}")
+def get_videos_by_date(date_str: str, db: Session = Depends(get_db)):
+    try:
+        target_date = date.fromisoformat(date_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format structure provided.")
+        
+    videos = db.execute(
+        text("SELECT video_id FROM public.video_registry WHERE processed_date = :d ORDER BY video_id DESC;"),
+        {"d": target_date}
+    ).scalars().all()
+    
+    return {"video_ids": videos}

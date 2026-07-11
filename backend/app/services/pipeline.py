@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, date
+import time
 import inspect
 import json
 from pathlib import Path
@@ -6,13 +7,15 @@ from pathlib import Path
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from sqlalchemy.orm import Session
-
+from sqlalchemy import text
+from backend.app import db
 from backend.app.models.video import (
     Detection,
     FrameImage,
-    ProcessingRun,
     Video,
-    ViolationImage
+    ProcessingRun,
+    VideoRoute,
+    ProjectViolation,
 )
 
 from backend.app.schemas import config
@@ -82,13 +85,9 @@ class VideoProcessingPipeline:
             "overspeed": {"vehicle_detection": "yolov8n.pt", "tracking": "bytetrack"}
         }
 
-    def run(
-        self,
-        db: Session,
-        video: Video,
-        config: ProcessingConfig
-    ) -> dict:
-
+    def run( self, db: Session, video: Video, config: ProcessingConfig ) -> dict:
+        total_start = time.perf_counter()
+        timings = {}
         # Ingest active model blueprints maps directly from storage
         use_custom = False
 
@@ -143,6 +142,7 @@ class VideoProcessingPipeline:
             print(config.violation_detection)
             
             # TRIPLE RIDING
+            start = time.perf_counter()
             if (config.violation_detection.taskkillenabled and "triple_riding" in config.violation_detection.list_violations):
                 models = model_mappings.get("triple_riding", {})
                 sig = inspect.signature(self.triple_riding.run)
@@ -163,7 +163,10 @@ class VideoProcessingPipeline:
             else:
                 stage_logs["triple_riding"] = {"status": "skipped"}
             
+            timings["Triple Riding"] = time.perf_counter() - start
+            
             # WRONG WAY
+            start = time.perf_counter()
             if (config.violation_detection.taskkillenabled and "wrong_way" in config.violation_detection.list_violations):
                 models = model_mappings.get("wrong_way", {})
                 print(f"[PIPELINE] Wrong Way mappings = {models}", flush=True)
@@ -192,8 +195,10 @@ class VideoProcessingPipeline:
                     )
             else:
                 stage_logs["wrong_way"] = {"status": "skipped"}
+            timings["Wrong Way"] = time.perf_counter() - start
             
             # OVERSPEED
+            start = time.perf_counter()
             if (config.violation_detection.taskkillenabled and "overspeed" in config.violation_detection.list_violations):
                 models = model_mappings.get("overspeed", {})
                 overspeed_dir = work_dir / "overspeed"
@@ -221,8 +226,10 @@ class VideoProcessingPipeline:
                     )
             else:
                 stage_logs["overspeed"] = {"status": "skipped"}
+            timings["Overspeed"] = time.perf_counter() - start
             
             # NO NUMBER PLATE
+            start = time.perf_counter()
             if (config.violation_detection.taskkillenabled and "no_number_plate" in config.violation_detection.list_violations):
                 models = model_mappings.get("no_number_plate", {})
                 no_number_plate_dir = work_dir / "no_number_plate"
@@ -243,8 +250,10 @@ class VideoProcessingPipeline:
                     )
             else:
                 stage_logs["no_number_plate"] = {"status": "skipped"}
+            timings["No Number Plate"] = time.perf_counter() - start
             
             # FRAME EXTRACTION
+            start = time.perf_counter()
             frames, stage_logs["frame_extraction"] = (
                 self.frame_extractor.run(
                     current_video,
@@ -252,8 +261,25 @@ class VideoProcessingPipeline:
                     work_dir / "frames"
                 )
             )
+            gps_timeline = stage_logs.get("frame_extraction", {}).get("gps_timeline", [])
+            db.query(VideoRoute).filter(VideoRoute.video_id == video.id).delete()
+
+            for index, point in enumerate(gps_timeline):
+                db.add(
+                    VideoRoute(
+                    video_id=video.id,
+                    latitude=float(point["latitude"]),
+                    longitude=float(point["longitude"]),
+                    timestamp_seconds=float(point["timestamp"]),
+                    sequence_order=index + 1,
+                    )
+                )
+
+            stage_logs["frame_extraction"]["gps_points_saved"] = len(gps_timeline)
+            timings["Frame Extraction"] = time.perf_counter() - start
 
             # FACE BLUR
+            start = time.perf_counter()
             if config.face_blur.enabled:
                 current_video, stage_logs["face_blur"] = (
                     self.face_blur.run(current_video, config.face_blur, work_dir / "face_blur")
@@ -262,6 +288,7 @@ class VideoProcessingPipeline:
             else:
                 stage_logs["face_blur"] = {"status": "skipped", "reason": "disabled"}
                 video.processed_video_path = str(current_video)
+            timings["Face Blur"] = time.perf_counter() - start
 
             # CLEAN OLD FRAME RECORDS
             db.query(FrameImage).filter(FrameImage.video_id == video.id).delete()
@@ -282,17 +309,19 @@ class VideoProcessingPipeline:
                 db.add_all(frame_records)
 
             stage_logs["frame_extraction"]["images_uploaded"] = len(frame_records)
+            
 
             # OBJECT DETECTION
+            start = time.perf_counter()
             detections, stage_logs["object_detection"] = (
                 self.object_detector.run(frames, config.object_detection)
             )
 
             # GEO TAGGING
-            geo_source = original_video if config.geo_tagging.mode == "metadata" else current_video
-            location, stage_logs["geo_tagging"] = (
-                self.geotagger.resolve(geo_source, config.geo_tagging)
-            )
+            # geo_source = original_video if config.geo_tagging.mode == "metadata" else current_video
+            start = time.perf_counter()
+            location, stage_logs["geo_tagging"] = (self.geotagger.resolve(current_video, config.geo_tagging, gps_timeline))
+            timings["Geo Tagging"] = time.perf_counter() - start
 
             # PROCESSED VIDEO UPLOAD
             processed_object = upload_processed_video(video.id, current_video)
@@ -310,12 +339,14 @@ class VideoProcessingPipeline:
             db.query(Detection).filter(Detection.video_id == video.id).delete()
 
             # CLEAN OLD VIOLATIONS
-            db.query(ViolationImage).filter(ViolationImage.video_id == video.id).delete()
+            db.query(ProjectViolation).filter(ProjectViolation.video_id == video.id).delete()
 
             # SAVE DETECTIONS
+            start = time.perf_counter()
             for item in detections:
-                latitude = location["latitude"] if location else None
-                longitude = location["longitude"] if location else None
+                coords = self.geotagger.get_coordinate_for_timestamp(item["timestamp_seconds"],gps_timeline,)
+                latitude = coords["latitude"] if coords else None
+                longitude = coords["longitude"] if coords else None
 
                 db.add(
                     Detection(
@@ -328,30 +359,77 @@ class VideoProcessingPipeline:
                         latitude=latitude,
                         longitude=longitude,
                         source_mode=config.geo_tagging.mode if location else None,
-                        location=self._build_location_value(db, latitude, longitude),
+                        location=self._build_location_value(db,latitude,longitude,),
                     )
                 )
+            timings["Detection Saving"] = time.perf_counter() - start
 
             # SAVE ALL VIOLATIONS
+            start = time.perf_counter()
             for stage in ["triple_riding", "wrong_way", "overspeed", "no_number_plate"]:
+
                 if stage not in stage_logs:
                     continue
+                print(f"[DEBUG] Stage = {stage}")
+                print(stage_logs.get(stage))
                 violations = stage_logs[stage].get("violations", [])
+                print(f"[DEBUG] Number of violations = {len(violations)}")
+
                 for item in violations:
+                    print(f"[DB INSERT] {item}")
+                    coords = self.geotagger.get_coordinate_for_timestamp(item["timestamp_seconds"],gps_timeline,)
+                    latitude = coords["latitude"] if coords else None
+                    longitude = coords["longitude"] if coords else None
+
                     db.add(
-                        ViolationImage(
+                        ProjectViolation(
                             video_id=video.id,
                             timestamp_seconds=item["timestamp_seconds"],
-                            plate_number=item["plate_number"],
+                            plate_number=item.get("plate_number"),
                             violation_type=item["violation_type"],
                             confidence=item["confidence"],
                             image_url=item["image_url"],
+                            latitude=latitude,
+                            longitude=longitude,
+                            location=self._build_location_value(db, latitude, longitude)
                         )
                     )
+    
                 stage_logs[stage]["violations_saved"] = len(violations)
+                timings[f"{stage} Violations"] = time.perf_counter() - start
                 
             run.status = "completed"
             video.status = "processed"
+            # REGISTRY UPSERT
+            start = time.perf_counter()
+            try:
+                registry_upsert_query = text("""
+                    INSERT INTO public.video_registry
+                        (processed_date, video_id)
+                    VALUES
+                        (:processed_date, :video_id)
+                    ON CONFLICT (video_id)
+                    DO UPDATE
+                    SET processed_date = EXCLUDED.processed_date;
+                """)
+
+                db.execute(
+                    registry_upsert_query,
+                    {
+                        "processed_date": date.today(),
+                        "video_id": video.id
+                    }
+                )
+
+                print(f"🔗 [Pipeline] Successfully synced Video ID {video.id} to public.video_registry.")
+
+            except Exception as registry_err:
+                db.rollback()   # IMPORTANT
+                print(f"⚠️ [Pipeline] Warning: Could not log processing marker to video_registry: {registry_err}")
+
+            run.status = "completed"
+            video.status = "processed"
+            timings["Registry Upsert"] = time.perf_counter() - start
 
         except Exception as exc:
             run.status = "failed"
@@ -363,8 +441,18 @@ class VideoProcessingPipeline:
             write_json(work_dir / "artifacts" / "stage_logs.json", stage_logs)
             run.completed_at = datetime.utcnow()
             run.stage_logs = stage_logs
+            start = time.perf_counter()
             db.commit()
+            timings["Database Commit"] = time.perf_counter() - start
 
+        total_time = time.perf_counter() - total_start
+
+        print("\n========== PIPELINE TIMING ==========")
+        for k, v in timings.items():
+            print(f"{k:<25}: {v:.2f} sec")
+        print("-------------------------------------")
+        print(f"TOTAL PIPELINE        : {total_time:.2f} sec")
+        print("=====================================")
         return stage_logs
 
     def _build_location_value(self, db: Session, latitude: float | None, longitude: float | None):
