@@ -342,6 +342,31 @@ def get_default_engine_mappings():
                     "display_name": "ByteTrack"
                 }
             ]
+        },
+
+        "no_helmet": {
+            "name": "No Helmet",
+            "tasks": [
+                {
+                    "id": "vehicle_detection",
+                    "name": "Vehicle Detection",
+                    "type": "model",
+                    "default": "yolov8n.pt"
+                },
+                {
+                    "id": "helmet_detection",
+                    "name": "Helmet Detection",
+                    "type": "model",
+                    "default": "cnn_helmet_detection(best).pt"
+                },
+                {
+                    "id": "tracking",
+                    "name": "Tracking",
+                    "type": "execution_module",
+                    "default": "botsort.yaml",
+                    "display_name": "BoT-SORT"
+                }
+            ]
         }
     }
 @router.get("/api/custom-mapping")

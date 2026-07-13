@@ -27,7 +27,9 @@ from backend.app.services.processors.lane_detector import detect_lanes_and_save_
 from backend.app.services.processors.wrong_way import WrongWayDetector
 from backend.app.services.processors.vehicle_speed import VehicleSpeedEstimator
 from backend.app.services.processors.no_number_plate import NoNumberPlateDetector
-from backend.app.services.processors.frame_extractor import FrameExtractionProcessor
+from backend.app.services.processors.helmet import HelmetDetector 
+# FrameStreamProcessor is frozen and imported here
+from backend.app.services.processors.frame_extractor import FrameStreamProcessor
 from backend.app.services.processors.geotagger import GeoTaggingProcessor
 from backend.app.services.processors.object_detector import ObjectDetectionProcessor
 
@@ -44,6 +46,7 @@ ENGINE_CONFIG_DIR = Path(__file__).resolve().parent
 DEFAULT_MAPPING_FILE = ENGINE_CONFIG_DIR / "default_mapping.json"
 CUSTOM_MAPPING_FILE = ENGINE_CONFIG_DIR / "custom_mapping.json"
 
+
 class VideoProcessingPipeline:
 
     def __init__(self) -> None:
@@ -53,7 +56,8 @@ class VideoProcessingPipeline:
         self.wrong_way = WrongWayDetector()
         self.overspeed = VehicleSpeedEstimator()
         self.no_number_plate = NoNumberPlateDetector()
-        self.frame_extractor = FrameExtractionProcessor()
+        self.no_helmet = HelmetDetector()  
+        self.frame_stream = FrameStreamProcessor()  
         self.object_detector = ObjectDetectionProcessor()
         self.geotagger = GeoTaggingProcessor()
 
@@ -77,18 +81,18 @@ class VideoProcessingPipeline:
             except Exception as e:
                 print(f"[Pipeline] Fallback to system defaults due to file fault: {e}")
                 
-        # Factory fallbacks if configuration file isn't initialized yet
+        # Fix #3: Factory fallbacks standardized cleanly on full tracker filenames
         return {
             "triple_riding": {"vehicle_detection": "yolov8n.pt", "person_detection": "triple_riding.pt"},
-            "wrong_way": {"vehicle_detection": "yolov8n.pt", "tracking": "bytetrack"},
+            "wrong_way": {"vehicle_detection": "yolov8n.pt", "tracking": "bytetrack.yaml"},
             "no_number_plate": {"plate_detection": "license_plate.pt", "ocr": "model (1).pt"},
-            "overspeed": {"vehicle_detection": "yolov8n.pt", "tracking": "bytetrack"}
+            "overspeed": {"vehicle_detection": "yolov8n.pt", "tracking": "bytetrack.yaml"},
+            "no_helmet": {"vehicle_detection": "yolov8n.pt", "helmet_detection": "cnn_helmet_detection(best).pt", "tracking": "botsort.yaml"}
         }
 
-    def run( self, db: Session, video: Video, config: ProcessingConfig ) -> dict:
+    def run(self, db: Session, video: Video, config: ProcessingConfig) -> dict:
         total_start = time.perf_counter()
         timings = {}
-        # Ingest active model blueprints maps directly from storage
         use_custom = False
 
         if hasattr(config, "violation_pipeline"):
@@ -141,144 +145,172 @@ class VideoProcessingPipeline:
 
             print(config.violation_detection)
             
-            # TRIPLE RIDING
-            start = time.perf_counter()
-            if (config.violation_detection.taskkillenabled and "triple_riding" in config.violation_detection.list_violations):
-                models = model_mappings.get("triple_riding", {})
-                sig = inspect.signature(self.triple_riding.run)
-                
-                if "vehicle_model" in sig.parameters and "person_model" in sig.parameters:
-                    current_video, stage_logs["triple_riding"] = self.triple_riding.run(
-                        current_video,
-                        work_dir / "triple_riding",
-                        video.id,
-                        vehicle_model=models.get("vehicle_detection", "yolov8n.pt"),
-                        person_model=models.get("person_detection", "triple_riding.pt")
-                    )
-                else:
-                    current_video, stage_logs["triple_riding"] = self.triple_riding.run(
-                        current_video, work_dir / "triple_riding", video.id
-                    )
-                video.processed_video_path = str(current_video)
-            else:
-                stage_logs["triple_riding"] = {"status": "skipped"}
+            # =================================================================
+            # 🚀 NEW SINGLE-PASS GENERATOR ENGINE LOOP (PHASE 2 MASTER PASS)
+            # =================================================================
+            loop_start = time.perf_counter()
+            frames_dir = work_dir / "frames"
             
-            timings["Triple Riding"] = time.perf_counter() - start
-            
-            # WRONG WAY
-            start = time.perf_counter()
-            if (config.violation_detection.taskkillenabled and "wrong_way" in config.violation_detection.list_violations):
-                models = model_mappings.get("wrong_way", {})
-                print(f"[PIPELINE] Wrong Way mappings = {models}", flush=True)
-                wrong_way_dir = work_dir / "wrong_way"
-                wrong_way_dir.mkdir(parents=True, exist_ok=True)
+            nnp_enabled = (config.violation_detection.taskkillenabled and "no_number_plate" in config.violation_detection.list_violations)
+            wrong_way_enabled = (config.violation_detection.taskkillenabled and "wrong_way" in config.violation_detection.list_violations)
+            triple_enabled = (config.violation_detection.taskkillenabled and "triple_riding" in config.violation_detection.list_violations)
+            overspeed_enabled = (config.violation_detection.taskkillenabled and "overspeed" in config.violation_detection.list_violations)
+            helmet_enabled = (config.violation_detection.taskkillenabled and "no_helmet" in config.violation_detection.list_violations)
 
-                print("[PIPELINE] Running lane calibration...", flush=True)
-                detect_lanes_and_save_config(current_video, wrong_way_dir / "config.json", wrong_way_dir / "detected_lanes.jpg")
-                print("[PIPELINE] Lane calibration completed", flush=True)
-
-                sig = inspect.signature(self.wrong_way.run)
-                if "vehicle_model" in sig.parameters and "tracker_module" in sig.parameters:
-                    print("USE_CUSTOM =", use_custom)
-                    print("MODEL_MAPPINGS =", json.dumps(model_mappings, indent=2))
-                    print("WRONG WAY MODELS =", models)
-                    current_video, stage_logs["wrong_way"] = self.wrong_way.run(
-                        current_video,
-                        wrong_way_dir,
-                        video.id,
-                        vehicle_model=models.get("vehicle_detection", "yolov8n.pt"),
-                        tracker_module=models.get("tracking", "bytetrack")
-                    )
-                else:
-                    current_video, stage_logs["wrong_way"] = self.wrong_way.run(
-                        current_video, wrong_way_dir, video.id
-                    )
-            else:
-                stage_logs["wrong_way"] = {"status": "skipped"}
-            timings["Wrong Way"] = time.perf_counter() - start
-            
-            # OVERSPEED
-            start = time.perf_counter()
-            if (config.violation_detection.taskkillenabled and "overspeed" in config.violation_detection.list_violations):
-                models = model_mappings.get("overspeed", {})
-                overspeed_dir = work_dir / "overspeed"
-                overspeed_dir.mkdir(parents=True, exist_ok=True)
-
+            # --- PRE-LOOP PREPROCESSING: Isolated Lane Detection Calibration ---
+            lane_detector_dir = work_dir / "lane_detector"
+            if wrong_way_enabled or overspeed_enabled:
+                lane_detector_dir.mkdir(parents=True, exist_ok=True)
+                print("[PIPELINE] Running independent lane calibration...", flush=True)
                 detect_lanes_and_save_config(
                     current_video,
-                    overspeed_dir / "config.json",
-                    overspeed_dir / "detected_lanes.jpg"
+                    lane_detector_dir / "config.json",
+                    lane_detector_dir / "detected_lanes.jpg"
                 )
+                print("[PIPELINE] Lane calibration completed", flush=True)
 
-                sig = inspect.signature(self.overspeed.run)
-                if "vehicle_model" in sig.parameters and "tracker_module" in sig.parameters:
-                    current_video, stage_logs["overspeed"] = self.overspeed.run(
-                        current_video,
-                        overspeed_dir,
-                        video.id,
-                        overspeed_dir / "config.json",
-                        vehicle_model=models.get("vehicle_detection", "yolov8n.pt"),
-                        tracker_module=models.get("tracking", "bytetrack")
-                    )
-                else:
-                    current_video, stage_logs["overspeed"] = self.overspeed.run(
-                        current_video, overspeed_dir, video.id, overspeed_dir / "config.json"
-                    )
-            else:
-                stage_logs["overspeed"] = {"status": "skipped"}
-            timings["Overspeed"] = time.perf_counter() - start
-            
-            # NO NUMBER PLATE
-            start = time.perf_counter()
-            if (config.violation_detection.taskkillenabled and "no_number_plate" in config.violation_detection.list_violations):
-                models = model_mappings.get("no_number_plate", {})
-                no_number_plate_dir = work_dir / "no_number_plate"
-                no_number_plate_dir.mkdir(parents=True, exist_ok=True)
-
-                sig = inspect.signature(self.no_number_plate.run)
-                if "plate_model" in sig.parameters and "ocr_model" in sig.parameters:
-                    current_video, stage_logs["no_number_plate"] = self.no_number_plate.run(
-                        current_video,
-                        no_number_plate_dir,
-                        video.id,
-                        plate_model=models.get("plate_detection", "license_plate.pt"),
-                        ocr_model=models.get("ocr", "model (1).pt")
-                    )
-                else:
-                    current_video, stage_logs["no_number_plate"] = self.no_number_plate.run(
-                        current_video, no_number_plate_dir, video.id
-                    )
+            # --- PRE-LOOP SESSION INITIALIZATIONS (PRESERVES UI MODEL CONFIGS) ---
+            if nnp_enabled:
+                self.no_number_plate.setup_session(work_dir / "no_number_plate", video.id)
             else:
                 stage_logs["no_number_plate"] = {"status": "skipped"}
-            timings["No Number Plate"] = time.perf_counter() - start
-            
-            # FRAME EXTRACTION
-            start = time.perf_counter()
-            frames, stage_logs["frame_extraction"] = (
-                self.frame_extractor.run(
-                    current_video,
-                    config.frame_extraction,
-                    work_dir / "frames"
+
+            # Fix #2: Standardized default runtime fallbacks to use full tracker extensions
+            if wrong_way_enabled:
+                ww_models = model_mappings.get("wrong_way", {})
+                self.wrong_way.setup_session(
+                    output_dir=work_dir / "wrong_way",
+                    video_id=video.id,
+                    config_path=lane_detector_dir / "config.json",
+                    vehicle_model=ww_models.get("vehicle_detection", "yolov8n.pt"),
+                    tracker_module=ww_models.get("tracking", "bytetrack.yaml")
                 )
-            )
+            else:
+                stage_logs["wrong_way"] = {"status": "skipped"}
+
+            if triple_enabled:
+                tr_models = model_mappings.get("triple_riding", {})
+                self.triple_riding.setup_session(
+                    output_dir=work_dir / "triple_riding",
+                    video_id=video.id,
+                    person_model=tr_models.get("person_detection", "triple_riding.pt"),
+                    vehicle_model=tr_models.get("vehicle_detection", "yolov8n.pt"),
+                    fps=25.0  
+                )
+            else:
+                stage_logs["triple_riding"] = {"status": "skipped"}
+
+            if overspeed_enabled:
+                os_models = model_mappings.get("overspeed", {})
+                self.overspeed.setup_session(
+                    output_dir=work_dir / "overspeed",
+                    video_id=video.id,
+                    config_path=lane_detector_dir / "config.json",
+                    vehicle_model=os_models.get("vehicle_detection", "yolov8n.pt"),
+                    tracker_module=os_models.get("tracking", "bytetrack.yaml"),
+                )
+            else:
+                stage_logs["overspeed"] = {"status": "skipped"}  
+                
+            if helmet_enabled:
+                helmet_models = model_mappings.get("no_helmet", {})
+                self.no_helmet.setup_session(
+                    output_dir=work_dir / "no_helmet",
+                    video_id=video.id,
+                    pipeline_config=config.violation_detection.model_dump(),  
+                    vehicle_model=helmet_models.get("vehicle_detection", "yolov8n.pt"),
+                    helmet_model=helmet_models.get("helmet_detection", "cnn_helmet_detection(best).pt"),
+                    tracker_module=helmet_models.get("tracking", "botsort.yaml")
+                )
+            else:
+                stage_logs["no_helmet"] = {"status": "skipped"}
+
+            # High-precision individual accumulation buffers
+            nnp_total_time = 0.0
+            ww_total_time = 0.0
+            tr_total_time = 0.0
+            os_total_time = 0.0
+            helmet_total_time = 0.0
+
+            # --- RUNTIME SINGLE-PASS STREAM CONTEXT CONSUMPTION ---
+            for context in self.frame_stream.run(current_video, config.frame_extraction, frames_dir):
+                # 1. License Plate Empty/Blank Checker
+                if nnp_enabled:
+                    nnp_start = time.perf_counter()
+                    self.no_number_plate.process_frame(context)
+                    nnp_total_time += (time.perf_counter() - nnp_start)
+                
+                # 2. Kinematic Directional Wrong Way Module Pass
+                if wrong_way_enabled:
+                    ww_start = time.perf_counter()
+                    self.wrong_way.process_frame(context)
+                    ww_total_time += (time.perf_counter() - ww_start)
+                
+                # 3. Converted Passive Triple Riding Module Pass
+                if triple_enabled:
+                    tr_start = time.perf_counter()
+                    self.triple_riding.process_frame(context)
+                    tr_total_time += (time.perf_counter() - tr_start)
+
+                # 4. Overspeed Detection Module Pass
+                if overspeed_enabled:
+                    os_start = time.perf_counter()
+                    self.overspeed.process_frame(context)
+                    os_total_time += (time.perf_counter() - os_start)
+
+                # 5. Modular Plug-in No Helmet Pass
+                if helmet_enabled:
+                    helmet_start = time.perf_counter()
+                    self.no_helmet.process_frame(context)
+                    helmet_total_time += (time.perf_counter() - helmet_start)
+
+            # --- POST-STREAM EXTRACTION MANIFEST HARVESTING ---
+            if nnp_enabled:
+                stage_logs["no_number_plate"] = self.no_number_plate.finish()
+
+            if wrong_way_enabled:
+                stage_logs["wrong_way"] = self.wrong_way.finish()
+
+            if triple_enabled:
+                stage_logs["triple_riding"] = self.triple_riding.finish()
+
+            if overspeed_enabled:
+                stage_logs["overspeed"] = self.overspeed.finish()
+
+            if helmet_enabled:
+                stage_logs["no_helmet"] = self.no_helmet.finish()
+                
+            # Extract historical sampled frames summary manifests
+            sampled_frames, stage_logs["frame_extraction"] = self.frame_stream.get_summary(config.frame_extraction)
+            
+            # Isolated, accurate loop performance tracking profiling metrics
+            timings["Frame Stream Engine Loop"] = time.perf_counter() - loop_start
+            timings["No Number Plate (Inference)"] = nnp_total_time
+            timings["Wrong Way (Inference)"] = ww_total_time
+            timings["Triple Riding (Inference)"] = tr_total_time
+            timings["Overspeed (Inference)"] = os_total_time
+            timings["No Helmet (Inference)"] = helmet_total_time
+
+            # =================================================================
+            # POST-LOOP COMPILATION & STORAGE DISPATCH (UNCHANGED DEPENDENCIES)
+            # =================================================================
             gps_timeline = stage_logs.get("frame_extraction", {}).get("gps_timeline", [])
             db.query(VideoRoute).filter(VideoRoute.video_id == video.id).delete()
 
             for index, point in enumerate(gps_timeline):
                 db.add(
                     VideoRoute(
-                    video_id=video.id,
-                    latitude=float(point["latitude"]),
-                    longitude=float(point["longitude"]),
-                    timestamp_seconds=float(point["timestamp"]),
-                    sequence_order=index + 1,
+                        video_id=video.id,
+                        latitude=float(point["latitude"]),
+                        longitude=float(point["longitude"]),
+                        timestamp_seconds=float(point["timestamp"]),
+                        sequence_order=index + 1,
                     )
                 )
 
             stage_logs["frame_extraction"]["gps_points_saved"] = len(gps_timeline)
-            timings["Frame Extraction"] = time.perf_counter() - start
 
-            # FACE BLUR
+            # FACE BLUR (Legacy Processing Pass)
             start = time.perf_counter()
             if config.face_blur.enabled:
                 current_video, stage_logs["face_blur"] = (
@@ -288,14 +320,14 @@ class VideoProcessingPipeline:
             else:
                 stage_logs["face_blur"] = {"status": "skipped", "reason": "disabled"}
                 video.processed_video_path = str(current_video)
-            timings["Face Blur"] = time.perf_counter() - start
+            timings["Face Blur (Legacy Pass)"] = time.perf_counter() - start
 
             # CLEAN OLD FRAME RECORDS
             db.query(FrameImage).filter(FrameImage.video_id == video.id).delete()
 
             frame_records = []
-            for frame in frames:
-                stored_frame = upload_frame_image(video.id, frame["frame_index"], Path(frame["path"]))
+            for frame in sampled_frames:
+                stored_frame = upload_frame_image(video.id, frame["frame_index"], frames_dir / f"frame_{frame['frame_index']:06d}.jpg")
                 frame_records.append(
                     FrameImage(
                         video_id=video.id,
@@ -310,15 +342,12 @@ class VideoProcessingPipeline:
 
             stage_logs["frame_extraction"]["images_uploaded"] = len(frame_records)
             
-
             # OBJECT DETECTION
-            start = time.perf_counter()
             detections, stage_logs["object_detection"] = (
-                self.object_detector.run(frames, config.object_detection)
+                self.object_detector.run(sampled_frames, config.object_detection)
             )
 
             # GEO TAGGING
-            # geo_source = original_video if config.geo_tagging.mode == "metadata" else current_video
             start = time.perf_counter()
             location, stage_logs["geo_tagging"] = (self.geotagger.resolve(current_video, config.geo_tagging, gps_timeline))
             timings["Geo Tagging"] = time.perf_counter() - start
@@ -335,16 +364,14 @@ class VideoProcessingPipeline:
                 "object_key": processed_object.object_key,
             }
 
-            # CLEAN OLD DETECTIONS
+            # CLEAN OLD DETECTIONS & VIOLATIONS FROM DATABASE
             db.query(Detection).filter(Detection.video_id == video.id).delete()
-
-            # CLEAN OLD VIOLATIONS
             db.query(ProjectViolation).filter(ProjectViolation.video_id == video.id).delete()
 
             # SAVE DETECTIONS
             start = time.perf_counter()
             for item in detections:
-                coords = self.geotagger.get_coordinate_for_timestamp(item["timestamp_seconds"],gps_timeline,)
+                coords = self.geotagger.get_coordinate_for_timestamp(item["timestamp_seconds"], gps_timeline)
                 latitude = coords["latitude"] if coords else None
                 longitude = coords["longitude"] if coords else None
 
@@ -359,33 +386,29 @@ class VideoProcessingPipeline:
                         latitude=latitude,
                         longitude=longitude,
                         source_mode=config.geo_tagging.mode if location else None,
-                        location=self._build_location_value(db,latitude,longitude,),
+                        location=self._build_location_value(db, latitude, longitude),
                     )
                 )
             timings["Detection Saving"] = time.perf_counter() - start
 
             # SAVE ALL VIOLATIONS
             start = time.perf_counter()
-            for stage in ["triple_riding", "wrong_way", "overspeed", "no_number_plate"]:
-
+            for stage in ["triple_riding", "wrong_way", "overspeed", "no_number_plate", "no_helmet"]:
                 if stage not in stage_logs:
                     continue
-                print(f"[DEBUG] Stage = {stage}")
-                print(stage_logs.get(stage))
+                
                 violations = stage_logs[stage].get("violations", [])
-                print(f"[DEBUG] Number of violations = {len(violations)}")
-
                 for item in violations:
-                    print(f"[DB INSERT] {item}")
-                    coords = self.geotagger.get_coordinate_for_timestamp(item["timestamp_seconds"],gps_timeline,)
+                    coords = self.geotagger.get_coordinate_for_timestamp(item["timestamp_seconds"], gps_timeline)
                     latitude = coords["latitude"] if coords else None
                     longitude = coords["longitude"] if coords else None
 
+                    # Fix #1: Preserves explicit database NULL support; strips hardcoded string mapping defaults
                     db.add(
                         ProjectViolation(
                             video_id=video.id,
                             timestamp_seconds=item["timestamp_seconds"],
-                            plate_number=item.get("plate_number"),
+                            plate_number=item.get("plate_number"),  
                             violation_type=item["violation_type"],
                             confidence=item["confidence"],
                             image_url=item["image_url"],
@@ -396,39 +419,27 @@ class VideoProcessingPipeline:
                     )
     
                 stage_logs[stage]["violations_saved"] = len(violations)
-                timings[f"{stage} Violations"] = time.perf_counter() - start
+                timings[f"{stage} Violations Saving"] = time.perf_counter() - start
                 
             run.status = "completed"
             video.status = "processed"
-            # REGISTRY UPSERT
+            
+            # REGISTRY UPSERT MARKER
             start = time.perf_counter()
             try:
                 registry_upsert_query = text("""
-                    INSERT INTO public.video_registry
-                        (processed_date, video_id)
-                    VALUES
-                        (:processed_date, :video_id)
-                    ON CONFLICT (video_id)
-                    DO UPDATE
+                    INSERT INTO public.video_registry (processed_date, video_id)
+                    VALUES (:processed_date, :video_id)
+                    ON CONFLICT (video_id) DO UPDATE
                     SET processed_date = EXCLUDED.processed_date;
                 """)
 
-                db.execute(
-                    registry_upsert_query,
-                    {
-                        "processed_date": date.today(),
-                        "video_id": video.id
-                    }
-                )
-
+                db.execute(registry_upsert_query, {"processed_date": date.today(), "video_id": video.id})
                 print(f"🔗 [Pipeline] Successfully synced Video ID {video.id} to public.video_registry.")
-
             except Exception as registry_err:
-                db.rollback()   # IMPORTANT
+                db.rollback()
                 print(f"⚠️ [Pipeline] Warning: Could not log processing marker to video_registry: {registry_err}")
 
-            run.status = "completed"
-            video.status = "processed"
             timings["Registry Upsert"] = time.perf_counter() - start
 
         except Exception as exc:
@@ -449,9 +460,9 @@ class VideoProcessingPipeline:
 
         print("\n========== PIPELINE TIMING ==========")
         for k, v in timings.items():
-            print(f"{k:<25}: {v:.2f} sec")
+            print(f"{k:<30}: {v:.2f} sec")
         print("-------------------------------------")
-        print(f"TOTAL PIPELINE        : {total_time:.2f} sec")
+        print(f"TOTAL PIPELINE                : {total_time:.2f} sec")
         print("=====================================")
         return stage_logs
 
