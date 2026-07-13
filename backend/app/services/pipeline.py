@@ -32,7 +32,7 @@ from backend.app.services.processors.phone_usage import PhoneUsageDetector  # Un
 # FrameStreamProcessor is frozen and imported here
 from backend.app.services.processors.frame_extractor import FrameStreamProcessor
 from backend.app.services.processors.geotagger import GeoTaggingProcessor
-from backend.app.services.processors.object_detector import ObjectDetectionProcessor
+
 
 from backend.app.services.storage import (
     download_file,
@@ -59,8 +59,7 @@ class VideoProcessingPipeline:
         self.no_number_plate = NoNumberPlateDetector()
         self.no_helmet = HelmetDetector()  
         self.phone_usage = PhoneUsageDetector()  # Instance initialized
-        self.frame_stream = FrameStreamProcessor()  
-        self.object_detector = ObjectDetectionProcessor()
+        self.frame_stream = FrameStreamProcessor()
         self.geotagger = GeoTaggingProcessor()
 
     def _get_active_model_mapping(self, use_custom: bool = False) -> dict:
@@ -367,11 +366,6 @@ class VideoProcessingPipeline:
 
             stage_logs["frame_extraction"]["images_uploaded"] = len(frame_records)
             
-            # OBJECT DETECTION
-            detections, stage_logs["object_detection"] = (
-                self.object_detector.run(sampled_frames, config.object_detection)
-            )
-
             # GEO TAGGING
             start = time.perf_counter()
             location, stage_logs["geo_tagging"] = (self.geotagger.resolve(current_video, config.geo_tagging, gps_timeline))
@@ -392,29 +386,6 @@ class VideoProcessingPipeline:
             # CLEAN OLD DETECTIONS & VIOLATIONS FROM DATABASE
             db.query(Detection).filter(Detection.video_id == video.id).delete()
             db.query(ProjectViolation).filter(ProjectViolation.video_id == video.id).delete()
-
-            # SAVE DETECTIONS
-            start = time.perf_counter()
-            for item in detections:
-                coords = self.geotagger.get_coordinate_for_timestamp(item["timestamp_seconds"], gps_timeline)
-                latitude = coords["latitude"] if coords else None
-                longitude = coords["longitude"] if coords else None
-
-                db.add(
-                    Detection(
-                        video_id=video.id,
-                        frame_index=item["frame_index"],
-                        timestamp_seconds=item["timestamp_seconds"],
-                        object_class=item["object_class"],
-                        confidence=item["confidence"],
-                        bbox=item["bbox"],
-                        latitude=latitude,
-                        longitude=longitude,
-                        source_mode=config.geo_tagging.mode if location else None,
-                        location=self._build_location_value(db, latitude, longitude),
-                    )
-                )
-            timings["Detection Saving"] = time.perf_counter() - start
 
             # SAVE ALL VIOLATIONS
             start = time.perf_counter()
