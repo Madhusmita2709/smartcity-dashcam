@@ -140,25 +140,58 @@ const Dictionary = {
 
     return "text-accent-muted";
   },
-  createMapPopupHTML(title, actualLabel, confidenceValue, videoId, plate = null, imgUrl = null) {
-    // Fixed: Defensive wrapper protecting against empty/null labels
-    const labelString = String(actualLabel ?? "").toLowerCase();
-    const themeClass = ["helmet", "phone", "wrong"].some(keyword => labelString.includes(keyword))
-      ? "popup-theme-accent"
-      : "popup-theme-secondary";
+  createMapPopupHTML(data) {
 
     return `
-      <div class="map-popup-container">
-        <strong class="map-popup-title ${themeClass}">${title}</strong>
-        <hr class="map-popup-divider"/>
-        <div class="map-popup-body">
-          ${plate ? `<b>Plate Reference:</b> <span class="mono-font">${plate}</span><br/>` : ''}
-          <b>Violation Type:</b> ${this.getViolationLabel(actualLabel)}<br/>
-          <b>Confidence:</b> ${(Number(confidenceValue ?? 0) * 100).toFixed(1)}%<br/>
-          <b>Video Track ID:</b> ${videoId}
-        </div>
-        ${imgUrl ? `<img src="${imgUrl}" class="map-popup-image" alt="Evidence Layer Data Match" />` : ''}
-      </div>
+    <div class="map-popup-container">
+
+        <h3 style="margin:0 0 8px;color:#c0392b;">
+            🚨 VIOLATION DETECTED
+        </h3>
+
+        <table style="font-size:13px;border-spacing:4px;">
+
+            <tr>
+                <td><b>Video ID</b></td>
+                <td>${data.video_id}</td>
+            </tr>
+
+            <tr>
+                <td><b>Violation</b></td>
+                <td>${Dictionary.getViolationLabel(data.violation_type)}</td>
+            </tr>
+
+            <tr>
+                <td><b>Confidence</b></td>
+                <td>${Number(data.confidence).toFixed(2)}</td>
+            </tr>
+
+            <tr>
+                <td><b>Plate Number</b></td>
+                <td>${data.plate_number || "UNKNOWN"}</td>
+            </tr>
+
+            <tr>
+                <td><b>Coordinates</b></td>
+                <td>${data.latitude}, ${data.longitude}</td>
+            </tr>
+
+        </table>
+
+        <hr>
+
+        <a href="${data.image_url}"
+           target="_blank"
+           rel="noopener noreferrer"
+           style="
+               color:#0b72e7;
+               font-weight:bold;
+               text-decoration:none;
+           ">
+           📷 Open Evidence Image
+        </a>
+
+    </div>
     `;
   }
 };
@@ -640,8 +673,8 @@ async function renderSnappedRoute(rawRoute) {
     if (flatSnappedPoints.length === 0) return;
     
     state.timelinePath = L.polyline(flatSnappedPoints, {
-      color: '#8d4f18',   // Unified primary accent theme token
-      weight: 6,          
+      color: '#052156',   // Unified primary accent theme token
+      weight: 8,          
       opacity: 0.9,
       dashArray: '1, 1',  
       lineCap: 'round',
@@ -731,6 +764,14 @@ async function refreshHeatmap() {
 
 async function fetchHeatmapPoints(videoId) {
   const params = new URLSearchParams({ video_id: videoId });
+  if (elements.dashboardViolationFilter?.value) {
+      params.set(
+          "violation_type",
+          normalizeViolationType(
+              elements.dashboardViolationFilter.value
+          )
+      );
+      }
   if (elements.heatmapObjectFilter?.value) params.set("object_type", elements.heatmapObjectFilter.value);
   if (elements.heatmapStart?.value) params.set("start_time", elements.heatmapStart.value);
   if (elements.heatmapEnd?.value) params.set("end_time", elements.heatmapEnd.value);
@@ -825,6 +866,79 @@ function getAssembledDateString() {
   return `${year}-${month}-${day}`;
 }
 
+async function loadAvailableProcessingDates() {
+
+    const response = await fetch("/api/available-processing-dates");
+
+    if (!response.ok) return;
+
+    const data = await response.json();
+
+    const years = new Set();
+    const months = new Set();
+    const days = new Set();
+
+    data.dates.forEach(date => {
+
+        const [year, month, day] = date.split("-");
+
+        years.add(year);
+        months.add(month);
+        days.add(day);
+
+    });
+
+    // Years
+    elements.archiveYearFilter.innerHTML = "";
+
+    [...years]
+        .sort((a,b)=>b-a)
+        .forEach(year=>{
+            elements.archiveYearFilter.innerHTML +=
+                `<option value="${year}">${year}</option>`;
+        });
+
+    // Months
+    const monthNames = {
+        "01":"January",
+        "02":"February",
+        "03":"March",
+        "04":"April",
+        "05":"May",
+        "06":"June",
+        "07":"July",
+        "08":"August",
+        "09":"September",
+        "10":"October",
+        "11":"November",
+        "12":"December"
+    };
+
+    elements.archiveMonthFilter.innerHTML = "";
+
+    [...months]
+        .sort()
+        .forEach(month=>{
+            elements.archiveMonthFilter.innerHTML +=
+                `<option value="${month}">
+                    ${monthNames[month]}
+                 </option>`;
+        });
+
+    // Days
+    elements.archiveDayFilter.innerHTML = "";
+
+    [...days]
+        .sort()
+        .forEach(day=>{
+            elements.archiveDayFilter.innerHTML +=
+                `<option value="${day}">
+                    ${day}
+                 </option>`;
+        });
+
+}
+
 async function initDashboardFilters() {
   try {
     const response = await fetch('/api/filter-metadata');
@@ -911,6 +1025,7 @@ async function syncDashboardTimeline(videoId) {
   const selectedViolationType = normalizeViolationType(
     elements.dashboardViolationFilter?.value ?? "all_violations"
   );
+  console.log("Selected Filter:", selectedViolationType);
 
   // Defensive Signal Interceptor: Drop lingering track queries to resolve click race conditions
   if (state.activeTimelineController) {
@@ -920,18 +1035,33 @@ async function syncDashboardTimeline(videoId) {
   const controller = state.activeTimelineController;
 
   const url = `/api/timeline-with-violations/${videoId}?violation_type=${encodeURIComponent(selectedViolationType)}`;
-
+  console.log("Timeline URL:", url);
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) throw new Error(`Timeline synchronization HTTP error: ${response.status}`);
     const syncData = await response.json();
+    console.log("Timeline Response:", syncData);
 
     // Check thread consistency locally before continuing rendering operations
     if (controller !== state.activeTimelineController) return;
 
     // 1. Asynchronously await road snapping calculations before evaluating sub-layers
     if (syncData.route && syncData.route.length > 0) {
-      await renderSnappedRoute(syncData.route);
+      if (syncData.route.length >= 10) {
+          await renderSnappedRoute(syncData.route);
+      } else {
+          if (state.timelinePath) {
+              state.map.removeLayer(state.timelinePath);
+          }
+
+          state.timelinePath = L.polyline(
+              syncData.route.map(p => [p.latitude, p.longitude]),
+              {
+                  color: "#18338d",
+                  weight: 8
+              }
+          ).addTo(state.map);
+      }
     } else if (state.map && state.timelinePath) {
       state.map.removeLayer(state.timelinePath);
       state.timelinePath = null;
@@ -944,7 +1074,7 @@ async function syncDashboardTimeline(videoId) {
 
     const rawViolations = syncData.violations ?? [];
     state.violations = rawViolations.map(v => ({ ...v, video_id: videoId }));
-
+    console.log("State Violations:", state.violations);
     if (typeof renderViolations === "function") {
       renderViolations();
     }
@@ -952,7 +1082,12 @@ async function syncDashboardTimeline(videoId) {
     let matchedCount = 0;
     state.violations.forEach(v => {
       const vType = v.violation_type ?? "";
-
+      console.log("----------------");
+      console.log("Filter:", selectedViolationType);
+      console.log("Violation:", v.violation_type);
+      console.log("Latitude:", v.latitude);
+      console.log("Longitude:", v.longitude);
+      console.log("Match:", Dictionary.matchesFilter(v.violation_type, selectedViolationType));
       if (
         Dictionary.matchesFilter(vType, selectedViolationType) &&
         v.latitude !== undefined &&
@@ -966,14 +1101,7 @@ async function syncDashboardTimeline(videoId) {
         ]);
 
         marker.bindPopup(
-          Dictionary.createMapPopupHTML(
-            "VIOLATION CAPTURED",
-            vType,
-            v.confidence ?? 0.85,
-            videoId,
-            v.plate_number,
-            v.image_url
-          )
+          Dictionary.createMapPopupHTML(v)
         );
 
         state.markersLayer?.addLayer(marker);
@@ -985,7 +1113,6 @@ async function syncDashboardTimeline(videoId) {
         `${matchedCount} geo-tagged elements matching filters active.`;
     }
 
-    await refreshHeatmap();
 
 } catch (syncErr) {
     if (syncErr.name === "AbortError") {
@@ -1254,11 +1381,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // 4. Asynchronous Filter Matrix Initialization & Boot Sequence Cascade
+  await loadAvailableProcessingDates();
+
   if (typeof initDashboardFilters === "function") {
+    
     await initDashboardFilters();
   } else {
     console.warn("⚠️ Meta-Filter Warning: initDashboardFilters sequence skipped or unavailable.");
   }
   await loadPipelineBlueprint();
   console.log("✅ Application Engine Architecture successfully mounted.");
+
 });

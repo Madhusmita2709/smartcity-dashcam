@@ -176,31 +176,50 @@ def get_results(video_id: int, db: Session = Depends(get_db)):
 
 @router.get("/heatmap", response_model=list[HeatmapPoint])
 def get_heatmap(
-    object_type: str | None = Query(default=None),
+    video_id: int | None = Query(default=None),
+    violation_type: str | None = Query(default="all_violations"),
     start_time: float | None = Query(default=None, ge=0),
     end_time: float | None = Query(default=None, ge=0),
     db: Session = Depends(get_db),
 ):
-    filters = [Detection.latitude.is_not(None), Detection.longitude.is_not(None)]
-    if object_type:
-        filters.append(Detection.object_class == object_type.lower())
-    if start_time is not None:
-        filters.append(Detection.timestamp_seconds >= start_time)
-    if end_time is not None:
-        filters.append(Detection.timestamp_seconds <= end_time)
 
-    rows = db.scalars(select(Detection).where(and_(*filters))).all()
+    filters = [
+        ProjectViolation.latitude.is_not(None),
+        ProjectViolation.longitude.is_not(None),
+    ]
+
+    if video_id is not None:
+        filters.append(ProjectViolation.video_id == video_id)
+
+    if violation_type and violation_type != "all_violations":
+        filters.append(
+            ProjectViolation.violation_type == violation_type.lower()
+        )
+
+    if start_time is not None:
+        filters.append(
+            ProjectViolation.timestamp_seconds >= start_time
+        )
+
+    if end_time is not None:
+        filters.append(
+            ProjectViolation.timestamp_seconds <= end_time
+        )
+
+    rows = db.scalars(
+        select(ProjectViolation).where(and_(*filters))
+    ).all()
+
     return [
         HeatmapPoint(
             latitude=row.latitude,
             longitude=row.longitude,
             intensity=max(row.confidence, 0.1),
-            object_class=row.object_class,
+            object_class=row.violation_type,
             timestamp_seconds=row.timestamp_seconds,
             video_id=row.video_id,
         )
         for row in rows
-        if row.latitude is not None and row.longitude is not None
     ]
 
 @router.get("/violations/{video_id}")
@@ -283,6 +302,7 @@ def get_video_timeline_with_violations(
         "violations": [
             {
                 "id": v.id,
+                "video_id": v.video_id,
                 "timestamp_seconds": v.timestamp_seconds,
                 "violation_type": v.violation_type,
                 "confidence": v.confidence,
@@ -444,3 +464,17 @@ def get_videos_by_date(date_str: str, db: Session = Depends(get_db)):
     ).scalars().all()
     
     return {"video_ids": videos}
+
+@router.get("/api/available-processing-dates")
+def get_available_processing_dates(db: Session = Depends(get_db)):
+
+    dates = (
+        db.query(VideoRegistry.processed_date)
+        .distinct()
+        .order_by(VideoRegistry.processed_date.desc())
+        .all()
+    )
+
+    return {
+        "dates": [str(d[0]) for d in dates]
+    }
