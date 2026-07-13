@@ -1,19 +1,23 @@
 from pathlib import Path
 from sqlalchemy import func
 from datetime import datetime, date
-from backend.app.models.video import VideoRoute
 import json
-ENGINE_CONFIG_DIR = Path(__file__).resolve().parents[1] / "services"
-DEFAULT_MAPPING_FILE = ENGINE_CONFIG_DIR / "default_mapping.json"
-CUSTOM_MAPPING_FILE = ENGINE_CONFIG_DIR / "custom_mapping.json"
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, Body
 from pydantic import ValidationError
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 from sqlalchemy.orm import Session
 
 from backend.app.db.database import get_db
-from backend.app.models.video import (Detection, FrameImage, Video, ProcessingRun, VideoRoute, ProjectViolation, VideoRegistry,)
+from backend.app.models.video import (
+    Detection, 
+    FrameImage, 
+    Video, 
+    ProcessingRun, 
+    VideoRoute, 
+    ProjectViolation, 
+    VideoRegistry
+)
 from backend.app.schemas.api import (
     DetectionResponse,
     FrameImageResponse,
@@ -23,10 +27,18 @@ from backend.app.schemas.api import (
     UploadResponse,
     UploadResponseItem,
 )
-from backend.app.schemas.config import (ProcessingConfig,CustomMappingRequest,)
+from backend.app.schemas.config import ProcessingConfig, CustomMappingRequest
 from backend.app.services.pipeline import VideoProcessingPipeline
-from backend.app.services.storage import save_upload_to_disk, upload_original_video, write_json, list_available_models
+from backend.app.services.storage import (
+    save_upload_to_disk, 
+    upload_original_video, 
+    write_json, 
+    list_available_models
+)
 
+ENGINE_CONFIG_DIR = Path(__file__).resolve().parent.parent / "services"
+DEFAULT_MAPPING_FILE = ENGINE_CONFIG_DIR / "default_mapping.json"
+CUSTOM_MAPPING_FILE = ENGINE_CONFIG_DIR / "custom_mapping.json"
 
 router = APIRouter()
 pipeline = VideoProcessingPipeline()
@@ -153,12 +165,6 @@ def get_results(video_id: int, db: Session = Depends(get_db)):
             FrameImageResponse(
                 id=item.id,
                 frame_index=item.frame_index,
-                #timestamp_seconds=item.timestamp_seconds,
-                #bucket_name=item.bucket_name,
-                #object_key=item.object_key,
-                #object_url=item.object_url,
-                #content_type=item.content_type,
-                #size_bytes=item.size_bytes,
                 frame_number=item.frame_number,
                 image_path=item.image_path,
                 video_id=item.video_id,
@@ -228,6 +234,68 @@ def get_violations(video_id: int, db: Session = Depends(get_db)):
             })
 
     return {"video_id": video_id, "violations": violations}
+
+
+# ==========================================================
+# TIMELINE ENGINE ENDPOINT (FIXED: 404 Resolution)
+# ==========================================================
+
+@router.get("/api/timeline-with-violations/{video_id}")
+def get_video_timeline_with_violations(
+    video_id: int, 
+    violation_type: str = Query(default="all_violations"), 
+    db: Session = Depends(get_db)
+):
+    """
+    Assembles spatial GPS points synchronized chronologically alongside detected 
+    incidents to drive the multi-layered tracking map in app.js.
+    """
+    video = db.get(Video, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Target video record not discovered.")
+
+    # Gather baseline dashcam telemetry timeline
+    route_query = select(VideoRoute).where(VideoRoute.video_id == video_id).order_by(VideoRoute.sequence_order.asc())
+    route_points = db.scalars(route_query).all()
+
+    # Query distinct violation records
+    violation_filter = [ProjectViolation.video_id == video_id]
+    if violation_type and violation_type != "all_violations":
+        violation_filter.append(ProjectViolation.violation_type == violation_type.lower())
+
+    violation_query = select(ProjectViolation).where(and_(*violation_filter)).order_by(ProjectViolation.timestamp_seconds.asc())
+    violations = db.scalars(violation_query).all()
+
+    # Format output map
+    return {
+        "video_id": video_id,
+        "filename": video.filename,
+        "status": video.status,
+        "route": [
+            {
+                "timestamp": pt.timestamp_seconds,
+                "latitude": pt.latitude,
+                "longitude": pt.longitude,
+                "sequence": pt.sequence_order
+            }
+            for pt in route_points
+        ],
+        "violations": [
+            {
+                "id": v.id,
+                "timestamp_seconds": v.timestamp_seconds,
+                "violation_type": v.violation_type,
+                "confidence": v.confidence,
+                "plate_number": v.plate_number,  # Returns clean NULL states statefully
+                "image_url": v.image_url,
+                "latitude": v.latitude,
+                "longitude": v.longitude
+            }
+            for v in violations
+        ]
+    }
+
+
 # ==========================================================
 # AI MODEL EXECUTION ENGINE
 # ==========================================================
@@ -237,9 +305,7 @@ def get_available_models():
     """
     Scans the MinIO Model Registry bucket dynamically to track present weights configurations.
     """
-    # Call the clean MinIO scanner function directly
     found_models = list_available_models()
-    
     return {
         "models": sorted(found_models)
     }
@@ -247,21 +313,22 @@ def get_available_models():
 
 @router.get("/api/violations")
 def get_available_violations():
+    # Synchronized completely to show all six present components
     return {
         "violations": [
             "triple_riding",
             "wrong_way",
             "no_number_plate",
-            "overspeed"
+            "overspeed",
+            "no_helmet",
+            "phone_usage"
         ]
     }
 
 
 @router.get("/api/default-mapping")
 def get_default_engine_mappings():
-
     mapping_file = DEFAULT_MAPPING_FILE
-
     if mapping_file.exists():
         try:
             with open(mapping_file, "r", encoding="utf-8") as f:
@@ -269,123 +336,66 @@ def get_default_engine_mappings():
         except Exception:
             pass
 
+    # Fully normalized defaults mapping with precise tracking filenames extensions
     return {
         "triple_riding": {
             "name": "Triple Riding",
             "tasks": [
-                {
-                    "id": "vehicle_detection",
-                    "name": "Vehicle Detection",
-                    "type": "model",
-                    "default": "yolov8n.pt"
-                },
-                {
-                    "id": "person_detection",
-                    "name": "Person Detection",
-                    "type": "model",
-                    "default": "triple_riding.pt"
-                }
+                {"id": "vehicle_detection", "name": "Vehicle Detection", "type": "model", "default": "yolov8n.pt"},
+                {"id": "person_detection", "name": "Person Detection", "type": "model", "default": "triple_riding.pt"}
             ]
         },
-
         "wrong_way": {
             "name": "Wrong Way",
             "tasks": [
-                {
-                    "id": "vehicle_detection",
-                    "name": "Vehicle Detection",
-                    "type": "model",
-                    "default": "yolov8n.pt"
-                },
-                {
-                    "id": "tracking",
-                    "name": "Tracking",
-                    "type": "execution_module",
-                    "default": "bytetrack",
-                    "display_name": "ByteTrack"
-                }
+                {"id": "vehicle_detection", "name": "Vehicle Detection", "type": "model", "default": "yolov8n.pt"},
+                {"id": "tracking", "name": "Tracking", "type": "execution_module", "default": "bytetrack.yaml", "display_name": "ByteTrack"}
             ]
         },
-
         "no_number_plate": {
             "name": "No Number Plate",
             "tasks": [
-                {
-                    "id": "plate_detection",
-                    "name": "Plate Detection",
-                    "type": "model",
-                    "default": "license_plate.pt"
-                },
-                {
-                    "id": "ocr",
-                    "name": "OCR",
-                    "type": "model",
-                    "default": "model (1).pt"
-                }
+                {"id": "plate_detection", "name": "Plate Detection", "type": "model", "default": "license_plate.pt"},
+                {"id": "ocr", "name": "OCR", "type": "model", "default": "model (1).pt"}
             ]
         },
-
         "overspeed": {
             "name": "Overspeeding",
             "tasks": [
-                {
-                    "id": "vehicle_detection",
-                    "name": "Vehicle Detection",
-                    "type": "model",
-                    "default": "yolov8n.pt"
-                },
-                {
-                    "id": "tracking",
-                    "name": "Tracking",
-                    "type": "execution_module",
-                    "default": "bytetrack",
-                    "display_name": "ByteTrack"
-                }
+                {"id": "vehicle_detection", "name": "Vehicle Detection", "type": "model", "default": "yolov8n.pt"},
+                {"id": "tracking", "name": "Tracking", "type": "execution_module", "default": "bytetrack.yaml", "display_name": "ByteTrack"}
             ]
         },
-
         "no_helmet": {
             "name": "No Helmet",
             "tasks": [
-                {
-                    "id": "vehicle_detection",
-                    "name": "Vehicle Detection",
-                    "type": "model",
-                    "default": "yolov8n.pt"
-                },
-                {
-                    "id": "helmet_detection",
-                    "name": "Helmet Detection",
-                    "type": "model",
-                    "default": "cnn_helmet_detection(best).pt"
-                },
-                {
-                    "id": "tracking",
-                    "name": "Tracking",
-                    "type": "execution_module",
-                    "default": "botsort.yaml",
-                    "display_name": "BoT-SORT"
-                }
+                {"id": "vehicle_detection", "name": "Vehicle Detection", "type": "model", "default": "yolov8n.pt"},
+                {"id": "helmet_detection", "name": "Helmet Detection", "type": "model", "default": "cnn_helmet_detection(best).pt"},
+                {"id": "tracking", "name": "Tracking", "type": "execution_module", "default": "botsort.yaml", "display_name": "BoT-SORT"}
+            ]
+        },
+        "phone_usage": {
+            "name": "Phone Usage",
+            "tasks": [
+                {"id": "vehicle_detection", "name": "Vehicle Detection", "type": "model", "default": "yolov8n.pt"},
+                {"id": "phone_detection", "name": "Phone Detection", "type": "model", "default": "cell_phone(best (9).pt"},
+                {"id": "tracking", "name": "Tracking", "type": "execution_module", "default": "bytetrack.yaml", "display_name": "ByteTrack"}
             ]
         }
     }
+
+
 @router.get("/api/custom-mapping")
 def get_custom_engine_mappings():
-
     if CUSTOM_MAPPING_FILE.exists():
         with open(CUSTOM_MAPPING_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-
     return get_default_engine_mappings()
 
 
 @router.post("/api/custom-mapping")
-def save_custom_override_configuration(
-    payload: CustomMappingRequest
-):
-
+def save_custom_override_configuration(payload: CustomMappingRequest):
     mapping_file = CUSTOM_MAPPING_FILE
-
     if mapping_file.exists():
         with open(mapping_file, "r", encoding="utf-8") as f:
             current = json.load(f)
@@ -393,22 +403,17 @@ def save_custom_override_configuration(
         current = get_default_engine_mappings()
 
     if payload.violation not in current:
-        raise HTTPException(
-            status_code=404,
-            detail="Violation not found."
-        )
+        raise HTTPException(status_code=404, detail="Violation not found.")
 
     for task in current[payload.violation]["tasks"]:
-
         if task["id"] in payload.overrides:
             task["default"] = payload.overrides[task["id"]]
 
     with open(mapping_file, "w", encoding="utf-8") as f:
         json.dump(current, f, indent=2)
 
-    return {
-        "status": "success"
-    }
+    return {"status": "success"}
+
 
 # ==========================================================================
 # DASHBOARD FILTER METADATA
@@ -421,15 +426,10 @@ def get_filter_metadata(db: Session = Depends(get_db)):
         .order_by(VideoRoute.created_at.desc())
         .first()
     )
-
     if latest_date:
-        return {
-            "default_date": str(latest_date[0])
-        }
+        return {"default_date": str(latest_date[0])}
+    return {"default_date": None}
 
-    return {
-        "default_date": None
-    }
 
 @router.get("/api/videos-by-date/{date_str}")
 def get_videos_by_date(date_str: str, db: Session = Depends(get_db)):

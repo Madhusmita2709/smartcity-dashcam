@@ -1089,9 +1089,7 @@ function renderDefaultConfiguration() {
 
 function renderViolationChecklist() {
 
-    const container =
-        document.getElementById("violationChecklist");
-
+    const container = document.getElementById("violationChecklist");
     if (!container) return;
 
     container.innerHTML = "";
@@ -1099,23 +1097,28 @@ function renderViolationChecklist() {
     Object.entries(state.defaultMapping).forEach(([key, value]) => {
 
         const label = document.createElement("label");
-
         label.className = "checklist-item";
 
-        label.innerHTML = `
-            <input
-                id="v_${key}"
-                type="checkbox"
-                checked
-                value="${key}">
-            ${value.name}
-        `;
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.id = `v_${key}`;
+        checkbox.value = key;
+
+        // default state
+        checkbox.checked = false;
+
+        // update JSON preview whenever user changes selection
+        checkbox.addEventListener("change", renderConfigPreview);
+
+        label.appendChild(checkbox);
+        label.append(" " + value.name);
 
         container.appendChild(label);
-
     });
 
+    renderConfigPreview();
 }
+
 /* ==========================================================================
    8. Generic Violations Card List Renderer (FINAL PASS)
    ========================================================================== */
