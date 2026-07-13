@@ -28,6 +28,7 @@ from backend.app.services.processors.wrong_way import WrongWayDetector
 from backend.app.services.processors.vehicle_speed import VehicleSpeedEstimator
 from backend.app.services.processors.no_number_plate import NoNumberPlateDetector
 from backend.app.services.processors.helmet import HelmetDetector 
+from backend.app.services.processors.phone_usage import PhoneUsageDetector  # Unified import hooked
 # FrameStreamProcessor is frozen and imported here
 from backend.app.services.processors.frame_extractor import FrameStreamProcessor
 from backend.app.services.processors.geotagger import GeoTaggingProcessor
@@ -57,6 +58,7 @@ class VideoProcessingPipeline:
         self.overspeed = VehicleSpeedEstimator()
         self.no_number_plate = NoNumberPlateDetector()
         self.no_helmet = HelmetDetector()  
+        self.phone_usage = PhoneUsageDetector()  # Instance initialized
         self.frame_stream = FrameStreamProcessor()  
         self.object_detector = ObjectDetectionProcessor()
         self.geotagger = GeoTaggingProcessor()
@@ -81,13 +83,13 @@ class VideoProcessingPipeline:
             except Exception as e:
                 print(f"[Pipeline] Fallback to system defaults due to file fault: {e}")
                 
-        # Fix #3: Factory fallbacks standardized cleanly on full tracker filenames
         return {
             "triple_riding": {"vehicle_detection": "yolov8n.pt", "person_detection": "triple_riding.pt"},
             "wrong_way": {"vehicle_detection": "yolov8n.pt", "tracking": "bytetrack.yaml"},
             "no_number_plate": {"plate_detection": "license_plate.pt", "ocr": "model (1).pt"},
             "overspeed": {"vehicle_detection": "yolov8n.pt", "tracking": "bytetrack.yaml"},
-            "no_helmet": {"vehicle_detection": "yolov8n.pt", "helmet_detection": "cnn_helmet_detection(best).pt", "tracking": "botsort.yaml"}
+            "no_helmet": {"vehicle_detection": "yolov8n.pt", "helmet_detection": "cnn_helmet_detection(best).pt", "tracking": "botsort.yaml"},
+            "phone_usage": {"vehicle_detection": "yolov8n.pt", "phone_detection": "cell_phone(best (9).pt", "tracking": "bytetrack.yaml"}  # Clean dictionary fallback properties
         }
 
     def run(self, db: Session, video: Video, config: ProcessingConfig) -> dict:
@@ -156,6 +158,7 @@ class VideoProcessingPipeline:
             triple_enabled = (config.violation_detection.taskkillenabled and "triple_riding" in config.violation_detection.list_violations)
             overspeed_enabled = (config.violation_detection.taskkillenabled and "overspeed" in config.violation_detection.list_violations)
             helmet_enabled = (config.violation_detection.taskkillenabled and "no_helmet" in config.violation_detection.list_violations)
+            phone_enabled = (config.violation_detection.taskkillenabled and "phone_usage" in config.violation_detection.list_violations)  # Active checking hook bound
 
             # --- PRE-LOOP PREPROCESSING: Isolated Lane Detection Calibration ---
             lane_detector_dir = work_dir / "lane_detector"
@@ -175,7 +178,6 @@ class VideoProcessingPipeline:
             else:
                 stage_logs["no_number_plate"] = {"status": "skipped"}
 
-            # Fix #2: Standardized default runtime fallbacks to use full tracker extensions
             if wrong_way_enabled:
                 ww_models = model_mappings.get("wrong_way", {})
                 self.wrong_way.setup_session(
@@ -195,7 +197,7 @@ class VideoProcessingPipeline:
                     video_id=video.id,
                     person_model=tr_models.get("person_detection", "triple_riding.pt"),
                     vehicle_model=tr_models.get("vehicle_detection", "yolov8n.pt"),
-                    fps=25.0  
+                    fps=25.0
                 )
             else:
                 stage_logs["triple_riding"] = {"status": "skipped"}
@@ -225,44 +227,63 @@ class VideoProcessingPipeline:
             else:
                 stage_logs["no_helmet"] = {"status": "skipped"}
 
+            if phone_enabled:
+                pu_models = model_mappings.get("phone_usage", {})
+                self.phone_usage.setup_session(
+                    output_dir=work_dir / "phone_usage",
+                    video_id=video.id,
+                    vehicle_model=pu_models.get("vehicle_detection", "yolov8n.pt"),
+                    phone_model=pu_models.get("phone_detection", "cell_phone(best (9).pt"),
+                    tracker_module=pu_models.get("tracking", "bytetrack.yaml")
+                )
+            else:
+                stage_logs["phone_usage"] = {"status": "skipped"}
+
             # High-precision individual accumulation buffers
             nnp_total_time = 0.0
             ww_total_time = 0.0
             tr_total_time = 0.0
             os_total_time = 0.0
             helmet_total_time = 0.0
+            phone_total_time = 0.0
 
             # --- RUNTIME SINGLE-PASS STREAM CONTEXT CONSUMPTION ---
             for context in self.frame_stream.run(current_video, config.frame_extraction, frames_dir):
-                # 1. License Plate Empty/Blank Checker
+                # 1. License Plate Checker Pass
                 if nnp_enabled:
                     nnp_start = time.perf_counter()
                     self.no_number_plate.process_frame(context)
                     nnp_total_time += (time.perf_counter() - nnp_start)
                 
-                # 2. Kinematic Directional Wrong Way Module Pass
+                # 2. Wrong Way Kinematic Pass
                 if wrong_way_enabled:
                     ww_start = time.perf_counter()
                     self.wrong_way.process_frame(context)
                     ww_total_time += (time.perf_counter() - ww_start)
                 
-                # 3. Converted Passive Triple Riding Module Pass
+                # 3. Triple Riding Pass
                 if triple_enabled:
                     tr_start = time.perf_counter()
                     self.triple_riding.process_frame(context)
                     tr_total_time += (time.perf_counter() - tr_start)
 
-                # 4. Overspeed Detection Module Pass
+                # 4. Overspeed Track Velocity Pass
                 if overspeed_enabled:
                     os_start = time.perf_counter()
                     self.overspeed.process_frame(context)
                     os_total_time += (time.perf_counter() - os_start)
 
-                # 5. Modular Plug-in No Helmet Pass
+                # 5. Helmet Classifier Pass
                 if helmet_enabled:
                     helmet_start = time.perf_counter()
                     self.no_helmet.process_frame(context)
                     helmet_total_time += (time.perf_counter() - helmet_start)
+
+                # 6. Distracted Phone Usage Pass
+                if phone_enabled:
+                    phone_start = time.perf_counter()
+                    self.phone_usage.process_frame(context)
+                    phone_total_time += (time.perf_counter() - phone_start)
 
             # --- POST-STREAM EXTRACTION MANIFEST HARVESTING ---
             if nnp_enabled:
@@ -279,17 +300,21 @@ class VideoProcessingPipeline:
 
             if helmet_enabled:
                 stage_logs["no_helmet"] = self.no_helmet.finish()
+
+            if phone_enabled:
+                stage_logs["phone_usage"] = self.phone_usage.finish()
                 
             # Extract historical sampled frames summary manifests
             sampled_frames, stage_logs["frame_extraction"] = self.frame_stream.get_summary(config.frame_extraction)
             
-            # Isolated, accurate loop performance tracking profiling metrics
+            # High precision profiling metrics delta logs compilation pass
             timings["Frame Stream Engine Loop"] = time.perf_counter() - loop_start
             timings["No Number Plate (Inference)"] = nnp_total_time
             timings["Wrong Way (Inference)"] = ww_total_time
             timings["Triple Riding (Inference)"] = tr_total_time
             timings["Overspeed (Inference)"] = os_total_time
             timings["No Helmet (Inference)"] = helmet_total_time
+            timings["Phone Usage (Inference)"] = phone_total_time
 
             # =================================================================
             # POST-LOOP COMPILATION & STORAGE DISPATCH (UNCHANGED DEPENDENCIES)
@@ -393,7 +418,7 @@ class VideoProcessingPipeline:
 
             # SAVE ALL VIOLATIONS
             start = time.perf_counter()
-            for stage in ["triple_riding", "wrong_way", "overspeed", "no_number_plate", "no_helmet"]:
+            for stage in ["triple_riding", "wrong_way", "overspeed", "no_number_plate", "no_helmet", "phone_usage"]:
                 if stage not in stage_logs:
                     continue
                 
@@ -403,7 +428,7 @@ class VideoProcessingPipeline:
                     latitude = coords["latitude"] if coords else None
                     longitude = coords["longitude"] if coords else None
 
-                    # Fix #1: Preserves explicit database NULL support; strips hardcoded string mapping defaults
+                    # Correct: Database clean fallback matching rule preserves true database fields NULL options state maps
                     db.add(
                         ProjectViolation(
                             video_id=video.id,

@@ -93,5 +93,30 @@
         "display_name": "BoT-SORT"
       }
     ]
+  },
+
+  "phone_usage": {
+    "name": "Phone Usage",
+    "tasks": [
+      {
+        "id": "vehicle_detection",
+        "name": "Vehicle Detection",
+        "type": "model",
+        "default": "yolov8n.pt"
+      },
+      {
+        "id": "phone_detection",
+        "name": "Phone Detection",
+        "type": "model",
+        "default": "cell_phone(best (9).pt"
+      },
+      {
+        "id": "tracking",
+        "name": "Tracking",
+        "type": "execution_module",
+        "default": "bytetrack.yaml",
+        "display_name": "ByteTrack"
+      }
+    ]
   }
 }
