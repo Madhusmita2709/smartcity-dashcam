@@ -10,7 +10,7 @@ class FaceBlurProcessor:
         # Load the YOLOv8 face model. 
         # 'yolov8n-face.pt' is a popular community face model, or you can use a generic weights file.
         # It will automatically download on the first run if not present locally.
-        self.model = YOLO("C:/Users/madhu/Downloads/smartcity-dashcam-main/smartcity-dashcam-main/backend/app/services/processors/yolov8n-face.pt")
+        self.model = YOLO("backend/app/services/processors/yolov8n-face.pt")
 
     def run(self, source: Path, config: FaceBlurConfig, output_dir: Path) -> tuple[Path, dict]:
         print("[FACE BLUR STARTED]", flush=True)
